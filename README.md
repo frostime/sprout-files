@@ -6,11 +6,13 @@
 
 - 发现规则：从当前目录向上查找首个 `.sprout/`（类似 `.git`）
 - 命令包目录：`.sprout/commands/<command>/`
+- 默认 authoring 格式：YAML（便于注释、示例和值说明）
 - 输入模式：默认参数输入；`-i/--interactive` 才进入交互
 - 基础类型：`string` / `number` / `enum`（`number` 支持可选 `min/max`）
 - 插值语法：`{{name}}`（仅纯文本替换，不支持逻辑流）
 - 冲突策略：`fail` / `overwrite` / `skip` / `rename`
 - `init` 支持自定义骨架、可选示例命令包，并生成项目内 `sprout-authoring` Skill 文档
+- 运行时兼容 `yaml` / `yml` / `toml` / `json` 配置与 manifest
 
 ## 快速开始
 
@@ -41,33 +43,89 @@ sprout new <command> [key=value ...] [--set key=value] [-i|--interactive] [--con
 
 ```text
 .sprout/
-  config.json
+  config.yaml
   commands/
     issue/
-      manifest.json
+      manifest.yaml
       issue.md
   skills/
     sprout-authoring/
       SKILL.md
 ```
 
-## 命令包 `manifest.json`（示例）
+## 如何填写 `.sprout/config.yaml`
 
-```json
-{
-  "name": "issue",
-  "description": "Create issue",
-  "inputs": [
-    { "name": "name", "type": "string" },
-    { "name": "type", "type": "enum", "enum": ["bug", "feat", "refactor"] },
-    { "name": "priority", "type": "number", "min": 1, "max": 5, "default": 3 }
-  ],
-  "assets": [
-    { "type": "dir", "path": "issues" },
-    { "type": "file", "path": "issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md", "template": "issue.md" }
-  ]
-}
+```yaml
+# sprout project defaults
+version: 1
+
+# Default conflict policy for generated assets.
+# Allowed: fail | overwrite | skip | rename
+conflict: fail
 ```
+
+字段说明：
+- `version`：整数，当前固定为 `1`
+- `conflict`：项目级默认冲突策略；可选 `fail` / `overwrite` / `skip` / `rename`
+
+## 如何填写 `manifest.yaml`
+
+```yaml
+name: issue
+description: Create issue
+
+# Optional per-command conflict override.
+# If omitted, sprout uses `.sprout/config.yaml`.
+conflict: fail
+
+inputs:
+  - name: name
+    type: string
+    required: true
+    description: Issue slug
+
+  - name: type
+    type: enum
+    enum:
+      - bug
+      - feat
+      - refactor
+    default: bug
+    description: Issue category
+
+  - name: priority
+    type: number
+    required: false
+    min: 1
+    max: 5
+    default: 3
+    description: Optional priority
+
+assets:
+  - type: dir
+    path: issues
+
+  - type: file
+    path: issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md
+    template: issue.md
+```
+
+### 字段说明
+
+#### `inputs[*]`
+- `name`：必填，且在同一命令内唯一
+- `type`：`string` / `number` / `enum`
+- `required`：可选，默认 `true`
+- `description`：可选，但建议填写，方便 Agent 理解用途
+- `default`：可选默认值
+- `enum`：当 `type: enum` 时必填
+- `min` / `max`：仅 `number` 类型可用
+
+#### `assets[*]`
+- `type`：`dir` 或 `file`
+- `path`：项目内相对路径
+- `template`：文件资产引用的模板文件，路径相对当前命令目录
+- `content`：简单文件可直接内联内容；与 `template` 二选一即可
 
 ## 变量上下文
 
@@ -77,8 +135,22 @@ sprout new <command> [key=value ...] [--set key=value] [-i|--interactive] [--con
 - `hh`, `mm`, `ss`
 - `date`, `time`, `datetime`, `timestamp`
 
+## Agent authoring 建议
+
+如果让 Agent 帮你写 `.sprout`，先让它读取：
+
+- `.sprout/skills/sprout-authoring/SKILL.md`
+
+然后先对齐：
+1. 命令目的
+2. 输入字段及类型
+3. 输出文件/目录
+4. 冲突策略
+
+不要一上来直接让 Agent 写 manifest。
+
 ## 常见问题
 
 - **找不到项目模板根**：确认当前目录或父目录存在 `.sprout/`
 - **命令不可用**：执行 `sprout doctor` 检查 invalid/conflict 报告
-- **YAML 清单无法读取**：安装 `PyYAML` 或改用 `manifest.json/toml`
+- **YAML 无法读取**：安装 `PyYAML`，或继续使用 TOML / JSON

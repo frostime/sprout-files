@@ -22,10 +22,16 @@ from .models import (
 )
 
 MANIFEST_NAMES = (
-    "manifest.json",
-    "manifest.toml",
     "manifest.yaml",
     "manifest.yml",
+    "manifest.toml",
+    "manifest.json",
+)
+CONFIG_NAMES = (
+    "config.yaml",
+    "config.yml",
+    "config.toml",
+    "config.json",
 )
 
 VALID_INPUT_TYPES = {"string", "number", "enum"}
@@ -80,7 +86,7 @@ def _load_mapping_file(path: Path) -> dict[str, Any]:
             import yaml  # type: ignore
         except ModuleNotFoundError as exc:
             raise ValidationError(
-                f"{path}: YAML support requires PyYAML. Use manifest.json/toml or install pyyaml."
+                f"{path}: YAML support requires PyYAML. Use JSON/TOML or install pyyaml."
             ) from exc
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     else:
@@ -91,9 +97,17 @@ def _load_mapping_file(path: Path) -> dict[str, Any]:
     return data
 
 
+def _config_path_for(sprout_dir: Path) -> Path | None:
+    for filename in CONFIG_NAMES:
+        candidate = sprout_dir / filename
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
 def _read_project_config(sprout_dir: Path) -> ProjectConfig:
-    config_path = sprout_dir / "config.json"
-    if not config_path.exists():
+    config_path = _config_path_for(sprout_dir)
+    if config_path is None:
         return ProjectConfig()
 
     data = _load_mapping_file(config_path)

@@ -44,6 +44,45 @@ def _manifest(name: str, *, number_with_bounds: bool = False) -> str:
 
 
 class CoreTests(unittest.TestCase):
+    def test_project_config_prefers_yaml_and_keeps_legacy_formats(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            commands = root / ".sprout" / "commands"
+            _write(commands / "issue" / "manifest.yaml", _manifest("issue"))
+            _write(commands / "issue" / "template.md", "# {{name}}")
+
+            sprout_dir = root / ".sprout"
+            _write(sprout_dir / "config.json", json.dumps({"conflict": "skip"}))
+            _write(sprout_dir / "config.toml", 'conflict = "overwrite"\n')
+            _write(sprout_dir / "config.yaml", "conflict: rename\n")
+
+            registry = load_registry(root)
+            self.assertEqual(registry.config.conflict, "rename")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            commands = root / ".sprout" / "commands"
+            _write(commands / "issue" / "manifest.json", _manifest("issue"))
+            _write(commands / "issue" / "template.md", "# {{name}}")
+            _write(root / ".sprout" / "config.toml", 'conflict = "overwrite"\n')
+
+            registry = load_registry(root)
+            self.assertEqual(registry.config.conflict, "overwrite")
+
+    def test_invalid_yaml_project_config_reports_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            commands = root / ".sprout" / "commands"
+            _write(commands / "issue" / "manifest.json", _manifest("issue"))
+            _write(commands / "issue" / "template.md", "# {{name}}")
+            _write(root / ".sprout" / "config.yaml", "conflict: maybe\n")
+
+            with self.assertRaises(ValidationError) as ctx:
+                load_registry(root)
+
+            self.assertIn("config.yaml", str(ctx.exception))
+            self.assertIn("conflict must be one of", str(ctx.exception))
+
     def test_discover_project_root_from_nested_directory(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
