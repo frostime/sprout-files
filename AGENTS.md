@@ -1,3 +1,5 @@
+- 项目背景：`sprout` 是一个模板驱动的项目内文件/目录生成 CLI；`.sspec/` 只用于本仓库的 spec-driven 开发流程，不是 sprout 的产品功能
+- 默认把 `sprout` 当作通用生成器来设计，不要把 sspec 概念直接混入用户侧 CLI/示例/文案，除非用户明确要求
 - 使用 uv 开发，使用 `uv run` 运行开发中的 sprout
 - 在 temp/<runtime-test-dir> 目录下测试 sprout 的行为
 

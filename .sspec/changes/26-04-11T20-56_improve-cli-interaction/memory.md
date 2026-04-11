@@ -19,7 +19,7 @@ This section records the change starting point in git and MUST NOT be edited or 
 
 ## State
 
-设计已更新并完成 Plan。下一步按 tasks.md 进入实现，优先落地 JSON 输入通道与 TTY 感知交互保护。
+用户已接受本次改动，change 已完成。下一步执行 git commit，并将 change 归档。
 
 ## Key Files
 
@@ -36,7 +36,12 @@ This section records the change starting point in git and MUST NOT be edited or 
 - [2026-04-11T21:06] [Decision] 不引入动态 `--name value` 参数解析；本次新增 `--json` 与 `--json-file` 作为 Agent/脚本的结构化输入入口。
 - [2026-04-11T21:06] [Constraint] `--json` / `--json-file` 仅接受顶层 object，且 value 仅支持可映射到现有 schema 的标量值；不支持嵌套对象或数组。
 - [2026-04-11T21:06] [Decision] 输入合并优先级为：JSON 基础层 → 位置参数 `pairs` → `--set` 覆盖层 → 交互补全缺失值。
+- [2026-04-11T21:31] [Decision] 默认 example 从 `change` 调整为 `task`，避免与 `.sspec` 术语产生产品层面的概念混淆。
+- [2026-04-11T21:31] [Decision] `AGENTS.md` 开头补充项目背景，明确 `sprout` 是产品，`.sspec` 是仓库内开发流程工具。
 
 ## Milestones
 
 - [2026-04-11T21:06] 设计补充 TTY 保护与 JSON 输入方案，Plan 完成并拆分为 4 个阶段 15 个任务
+- [2026-04-11T21:22] 实现完成：新增 JSON 输入、TTY 保护、交互确认与改进提示；定向测试与 temp 手测通过
+- [2026-04-11T21:31] Review 小修完成：example 改为 task，AGENTS.md 背景补充完成
+- [2026-04-11T21:43] 用户确认通过，change 标记为 DONE，准备 commit 与 archive

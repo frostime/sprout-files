@@ -19,6 +19,7 @@ from .models import (
     InputSpec,
     ProjectConfig,
     TemplateValidationIssue,
+    UserAbortError,
     ValidationError,
 )
 
@@ -39,6 +40,7 @@ VALID_INPUT_TYPES = {"string", "number", "enum"}
 VALID_ASSET_TYPES = {"file", "dir"}
 VALID_CONFLICT_POLICIES = {"fail", "overwrite", "skip", "rename"}
 VARIABLE_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+CANCEL_INPUTS = {"q", "quit", "exit"}
 
 # Built-in template variables
 BUILTIN_VARIABLES = {
@@ -57,6 +59,13 @@ class PlannedAsset:
     final_path: Path
     action: str
     content: str | None
+
+
+@dataclass(slots=True)
+class PromptInfo:
+    title: str
+    description: str
+    detail: str
 
 
 def discover_project_root(start: Path, directory_name: str = ".sprout") -> Path:
@@ -383,6 +392,51 @@ def parse_key_value_pairs(items: list[str]) -> dict[str, str]:
     return values
 
 
+def _validate_json_input_mapping(data: Any, *, source: str) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValidationError(f"JSON input must be an object in {source}")
+
+    values: dict[str, Any] = {}
+    for key, value in data.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValidationError(f"JSON input keys must be non-empty strings in {source}")
+        if isinstance(value, (dict, list)):
+            raise ValidationError(
+                f"JSON input '{key}' in {source} must be a string, number, boolean, or null"
+            )
+        values[key] = value
+    return values
+
+
+def parse_json_input(raw: str) -> dict[str, Any]:
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"Invalid JSON input: {exc.msg} at line {exc.lineno} column {exc.colno}") from exc
+
+    return _validate_json_input_mapping(data, source="--json")
+
+
+def load_json_input_file(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        raise ValidationError(f"JSON input file not found: {path}")
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValidationError(
+            f"Invalid JSON input file '{path}': {exc.msg} at line {exc.lineno} column {exc.colno}"
+        ) from exc
+
+    return _validate_json_input_mapping(data, source=str(path))
+
+
+def merge_input_sources(base: dict[str, Any], overrides: dict[str, str]) -> dict[str, Any]:
+    merged = dict(base)
+    merged.update(overrides)
+    return merged
+
+
 def _coerce_number(spec: InputSpec, raw: Any) -> int | float:
     try:
         value = float(raw)
@@ -422,25 +476,50 @@ def _coerce_input_value(spec: InputSpec, raw: Any) -> Any:
     raise ValidationError(f"Unknown input type: {spec.type}")
 
 
-def _prompt_missing_value(spec: InputSpec, prompt: Callable[[str], str]) -> Any:
+def build_prompt_info(spec: InputSpec) -> PromptInfo:
+    requirement = "required" if spec.required else "optional"
+    detail_parts: list[str] = []
+
+    if spec.type == "enum":
+        detail_parts.append(f"choices: {', '.join(spec.enum)}")
+    elif spec.type == "number":
+        bounds: list[str] = []
+        if spec.minimum is not None:
+            bounds.append(f"min={spec.minimum:g}")
+        if spec.maximum is not None:
+            bounds.append(f"max={spec.maximum:g}")
+        detail_parts.append("number" if not bounds else f"number ({', '.join(bounds)})")
+    else:
+        detail_parts.append("text")
+
+    if spec.default is not None:
+        detail_parts.append(f"default: {spec.default}")
+
+    return PromptInfo(
+        title=f"{spec.name} ({requirement})",
+        description=spec.description or "No description provided.",
+        detail=" | ".join(detail_parts),
+    )
+
+
+def _read_prompt_value(prompt: Callable[[str], str] | None, message: str) -> str:
+    reader = prompt or input
+    try:
+        raw = reader(message)
+    except (EOFError, KeyboardInterrupt) as exc:
+        raise UserAbortError("Cancelled. No files were created.") from exc
+
+    if raw.strip().lower() in CANCEL_INPUTS:
+        raise UserAbortError("Cancelled. No files were created.")
+    return raw
+
+
+def _prompt_missing_value(spec: InputSpec, prompt: Callable[[str], str] | None) -> Any:
+    info = build_prompt_info(spec)
+    message = f"{info.title}\n{info.description}\n{info.detail}\n> "
+
     while True:
-        suffix = ""
-        if spec.type == "enum":
-            suffix = f" choices={spec.enum}"
-        elif spec.type == "number":
-            bounds = []
-            if spec.minimum is not None:
-                bounds.append(f"min={spec.minimum:g}")
-            if spec.maximum is not None:
-                bounds.append(f"max={spec.maximum:g}")
-            if bounds:
-                suffix = " " + " ".join(bounds)
-
-        default_text = ""
-        if spec.default is not None:
-            default_text = f" [default={spec.default}]"
-
-        raw = prompt(f"{spec.name}{suffix}{default_text}: ").strip()
+        raw = _read_prompt_value(prompt, message).strip()
 
         if raw == "" and spec.default is not None:
             raw = str(spec.default)
@@ -448,18 +527,37 @@ def _prompt_missing_value(spec: InputSpec, prompt: Callable[[str], str]) -> Any:
         if raw == "" and not spec.required:
             return ""
 
+        if raw == "" and spec.type == "string" and spec.required:
+            print(f"Invalid value: Input '{spec.name}' cannot be empty")
+            continue
+
         try:
             return _coerce_input_value(spec, raw)
         except ValidationError as exc:
             print(f"Invalid value: {exc}")
 
 
+def find_missing_required_inputs(
+    command: CommandSpec,
+    provided: dict[str, Any],
+) -> list[InputSpec]:
+    missing: list[InputSpec] = []
+    for spec in command.inputs:
+        if spec.name in provided:
+            continue
+        if spec.default is not None:
+            continue
+        if spec.required:
+            missing.append(spec)
+    return missing
+
+
 def collect_inputs(
     command: CommandSpec,
-    provided: dict[str, str],
+    provided: dict[str, Any],
     *,
     interactive: bool,
-    prompt: Callable[[str], str] = input,
+    prompt: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     known_names = {input_spec.name for input_spec in command.inputs}
     unknown = sorted(set(provided.keys()) - known_names)
@@ -494,6 +592,14 @@ def collect_inputs(
         )
 
     return values
+
+
+def suggest_command_names(name: str, available: list[str], *, limit: int = 3) -> list[str]:
+    try:
+        from difflib import get_close_matches
+    except ImportError:
+        return []
+    return get_close_matches(name, available, n=limit, cutoff=0.5)
 
 
 def build_variable_context(values: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 ---
 name: improve-cli-interaction
-status: PLANNING
+status: DONE
 change-type: single
 created: 2026-04-11T20:56:38
 reference:

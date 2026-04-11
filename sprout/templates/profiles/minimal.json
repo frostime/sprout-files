@@ -3,7 +3,7 @@
   "files": [
     {
       "path": "README.md",
-      "content": "# .sprout workspace\n\nProject-local template command workspace for `sprout`.\n\nStart with `.sprout/config.yaml` and `.sprout/commands/<name>/manifest.yaml`.\n"
+      "content": "# .sprout workspace\n\nProject-local template command workspace for `sprout`.\n\nStart with `.sprout/config.yaml` and `.sprout/commands/<name>/manifest.yaml`.\n\n## Quick checks\n\n```bash\nsprout list --all\nsprout doctor\nsprout new <command> name=test\nsprout new <command> --json '{\"name\":\"test\"}'\n```\n\nNotes:\n- TTY terminals can offer interactive fill-in for missing required inputs\n- Non-TTY environments fail fast instead of waiting for input\n- Use `--json` / `--json-file` for Agent or script-driven calls\n"
     }
   ]
 }

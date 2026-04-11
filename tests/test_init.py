@@ -16,6 +16,7 @@ class InitTests(unittest.TestCase):
             self.assertTrue((root / ".sprout" / "config.yaml").exists())
             self.assertTrue((root / ".sprout" / "skills" / "sprout-authoring" / "SKILL.md").exists())
             self.assertTrue((root / ".sprout" / "commands" / "issue" / "manifest.yaml").exists())
+            self.assertTrue((root / ".sprout" / "commands" / "task" / "manifest.yaml").exists())
             self.assertIn("conflict: fail", (root / ".sprout" / "config.yaml").read_text(encoding="utf-8"))
             self.assertGreater(len(first.created), 0)
 

@@ -1,4 +1,4 @@
-# Change: {{name}}
+# Task: {{name}}
 
 - Type: {{type}}
 - Created: {{datetime}}

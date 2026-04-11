@@ -112,7 +112,7 @@ def _copy_example_command(commands_dir: Path, example_name: str, report: InitRep
 
 def _add_example_commands(commands_dir: Path, report: InitReport) -> None:
     _copy_example_command(commands_dir, "issue", report)
-    _copy_example_command(commands_dir, "change", report)
+    _copy_example_command(commands_dir, "task", report)
 
 
 def initialize_workspace(
