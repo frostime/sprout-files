@@ -1,0 +1,9 @@
+{
+  "directories": [],
+  "files": [
+    {
+      "path": "README.md",
+      "content": "# .sprout workspace\n\nProject-local template command workspace for `sprout`.\n\nStart with `.sprout/config.yaml` and `.sprout/commands/<name>/manifest.yaml`.\n"
+    }
+  ]
+}

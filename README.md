@@ -17,17 +17,28 @@
 ## 快速开始
 
 ```bash
+# 0) 可选：安装 YAML 支持（推荐）
+uv add --optional yaml
+# 或使用 pip: pip install pyyaml
+
 # 1) 初始化
 sprout init --with-examples
 
 # 2) 查看命令
 sprout list --all
 
-# 3) 执行命令（默认参数模式）
+# 3) 执行命令（默认参数模式，使用 = 连接键值）
 sprout new issue name=my-task type=bug
 
-# 4) 缺参时使用交互模式
-sprout new change -i
+# 4) 交互模式（程序会提示输入缺失的参数）
+sprout new issue -i
+# 程序提示: name: 
+# 你输入: my-task
+# 程序提示: type choices=['bug', 'feat', 'refactor'] [default=bug]:
+# 你输入: bug (或直接回车使用默认值)
+
+# 5) 预览模式（不实际创建文件）
+sprout new issue name=test type=feat --dry-run
 ```
 
 ## 命令
@@ -134,6 +145,38 @@ assets:
 - `YYYY`, `YY`, `MM`, `DD`
 - `hh`, `mm`, `ss`
 - `date`, `time`, `datetime`, `timestamp`
+
+## 冲突策略说明
+
+当生成的文件或目录已存在时，sprout 会根据冲突策略处理：
+
+- `fail`（默认）：报错并停止
+- `skip`：跳过已存在的文件
+- `overwrite`：覆盖已存在的文件
+- `rename`：重命名新文件（添加 `_02`、`_03` 等后缀）
+
+**目录特殊处理**：目录被视为容器而非内容，已存在的目录会自动复用（REUSE），不受冲突策略影响。只有文件冲突才会应用冲突策略。
+
+示例：
+```bash
+# 第一次执行
+sprout new issue name=test type=bug
+# 输出：
+#   + CREATE issues
+#   + CREATE issues/26-04-11_test.md
+
+# 第二次执行（目录已存在）
+sprout new issue name=another type=feat
+# 输出：
+#   = REUSE issues              # 目录自动复用
+#   + CREATE issues/26-04-11_another.md
+
+# 第三次执行（文件冲突）
+sprout new issue name=another type=feat
+# 输出：
+#   Error: Target already exists: issues/26-04-11_another.md
+#   Hint: Use --conflict=skip or --conflict=overwrite
+```
 
 ## Agent authoring 建议
 

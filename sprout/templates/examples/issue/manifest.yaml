@@ -1,0 +1,28 @@
+name: issue
+description: Create an issue document
+
+# Optional command-level conflict override.
+# If omitted, sprout uses `.sprout/config.yaml`.
+# conflict: fail
+
+inputs:
+  - name: name
+    type: string
+    description: Issue slug used in generated file names
+
+  - name: type
+    type: enum
+    enum:
+      - bug
+      - feat
+      - refactor
+    default: bug
+    description: Issue category
+
+assets:
+  - type: dir
+    path: issues
+
+  - type: file
+    path: issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md
+    template: issue.md

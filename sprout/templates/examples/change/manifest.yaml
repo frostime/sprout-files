@@ -1,0 +1,24 @@
+name: change
+description: Create a change folder and proposal
+
+inputs:
+  - name: name
+    type: string
+    description: Change slug
+
+  - name: type
+    type: enum
+    enum:
+      - bug
+      - feat
+      - refactor
+    default: feat
+    description: Change category
+
+assets:
+  - type: dir
+    path: changes/{{YY}}-{{MM}}-{{DD}}_{{name}}
+
+  - type: file
+    path: changes/{{YY}}-{{MM}}-{{DD}}_{{name}}/proposal.md
+    template: proposal.md

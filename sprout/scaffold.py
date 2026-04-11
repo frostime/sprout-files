@@ -7,189 +7,27 @@ from typing import Any
 from .models import InitReport, ValidationError
 
 
-BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
-    "minimal": {
-        "directories": [],
-        "files": [
-            {
-                "path": "README.md",
-                "content": (
-                    "# .sprout workspace\n\n"
-                    "Project-local template command workspace for `sprout`.\n\n"
-                    "Start with `.sprout/config.yaml` and `.sprout/commands/<name>/manifest.yaml`.\n"
-                ),
-            }
-        ],
-    },
-    "docs": {
-        "directories": ["profiles"],
-        "files": [
-            {
-                "path": "README.md",
-                "content": (
-                    "# .sprout workspace\n\n"
-                    "Use `.sprout/config.yaml` for project defaults and `"
-                    "`.sprout/commands/<name>/manifest.yaml` to define generators.\n"
-                ),
-            },
-            {
-                "path": "profiles/default.json",
-                "content": json.dumps(
-                    {
-                        "name": "default",
-                        "notes": "Example profile metadata for team conventions.",
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                + "\n",
-            },
-        ],
-    },
-}
+def _get_templates_dir() -> Path:
+    """Get the templates directory path."""
+    return Path(__file__).parent / "templates"
 
 
-LOCAL_SKILL_CONTENT = """---
-name: sprout-authoring
-description: Use this guide when creating/updating `.sprout/commands/*` command packages for this project.
----
-
-# sprout-authoring
-
-## Intent
-
-Help users and Agents define or update command packages under `.sprout/commands/`.
-
-## First align before editing
-
-Before writing any file, confirm these 4 things with the user:
-1. **Command purpose**: What should `sprout new <command>` create?
-2. **Inputs**: Which fields are required? What type is each field?
-3. **Assets**: Which files/directories should be generated? Where?
-4. **Conflict policy**: What should happen if the target already exists? (`fail` / `overwrite` / `skip` / `rename`)
-
-If any of these are unclear, ask first. Do not guess package structure.
-
-## Files to create or edit
-
-For command `<name>`, usually touch:
-- `.sprout/config.yaml` — project-level defaults such as `conflict`
-- `.sprout/commands/<name>/manifest.yaml` — command definition
-- Template files referenced by `assets[*].template`
-
-## Data model quick reference
-
-### 1) Project config: `.sprout/config.yaml`
-
-```yaml
-# sprout project defaults
-version: 1
-
-# Default target conflict policy for generated assets.
-# Allowed: fail | overwrite | skip | rename
-conflict: fail
-```
-
-- `version`: integer, current value is `1`
-- `conflict`: optional project default, one of `fail`, `overwrite`, `skip`, `rename`
-
-### 2) Command manifest: `.sprout/commands/<name>/manifest.yaml`
-
-```yaml
-name: issue
-description: Create an issue document
-
-# Optional per-command conflict override.
-# If omitted, sprout uses `.sprout/config.yaml`.
-conflict: fail
-
-inputs:
-  - name: name
-    type: string
-    required: true
-    description: Issue slug used in file name
-
-  - name: type
-    type: enum
-    enum:
-      - bug
-      - feat
-      - refactor
-    default: bug
-    description: Issue category
-
-  - name: priority
-    type: number
-    required: false
-    min: 1
-    max: 5
-    default: 3
-    description: Optional priority score
-
-assets:
-  - type: dir
-    path: issues
-
-  - type: file
-    path: issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md
-    template: issue.md
-```
-
-## Field filling rules
-
-### `inputs[*]`
-- `name`: required, unique within the command
-- `type`: `string` | `number` | `enum`
-- `required`: optional, defaults to `true`
-- `description`: optional but recommended
-- `default`: optional
-- `enum`: required when `type: enum`
-- `min` / `max`: only for `type: number`
-
-### `assets[*]`
-- `type`: `dir` or `file`
-- `path`: required relative path inside the project
-- `template`: for file assets, path to template file inside the same command package
-- `content`: optional inline content for simple files
-
-## Rendering rules
-
-- Placeholders use `{{variable}}` only
-- Supported variables = user inputs + built-in time values:
-  `YYYY`, `YY`, `MM`, `DD`, `hh`, `mm`, `ss`, `date`, `time`, `datetime`, `timestamp`
-- No `if`, `for`, function calls, or nested logic
-- Paths must stay inside the project root
-
-## Authoring checklist
-
-Before finishing, verify:
-- manifest file path is correct
-- every input has a clear purpose
-- every file asset has either `template` or `content`
-- template files actually exist
-- paths only use `{{var}}` interpolation
-- conflict behavior is explicit somewhere (command or project level)
-
-## Validation commands
-
-After editing, run:
-
-```bash
-sprout doctor
-sprout list --all
-sprout new <command> ...
-```
-"""
+def _load_builtin_profile(name: str) -> dict[str, Any]:
+    """Load a built-in profile from templates/profiles/."""
+    templates_dir = _get_templates_dir()
+    profile_path = templates_dir / "profiles" / f"{name}.json"
+    if not profile_path.exists():
+        raise ValidationError(f"Built-in profile '{name}' not found")
+    return json.loads(profile_path.read_text(encoding="utf-8"))
 
 
-def _default_config_yaml() -> str:
-    return (
-        "# sprout project defaults\n"
-        "version: 1\n\n"
-        "# Default conflict policy for generated files/directories.\n"
-        "# Allowed: fail | overwrite | skip | rename\n"
-        "conflict: fail\n"
-    )
+def _load_template_file(relative_path: str) -> str:
+    """Load a template file from templates/."""
+    templates_dir = _get_templates_dir()
+    template_path = templates_dir / relative_path
+    if not template_path.exists():
+        raise ValidationError(f"Template file not found: {relative_path}")
+    return template_path.read_text(encoding="utf-8")
 
 
 def _safe_target(base: Path, relative_path: str) -> Path:
@@ -254,85 +92,27 @@ def _apply_profile(sprout_dir: Path, profile_data: dict[str, Any], report: InitR
         _write_if_missing(_safe_target(sprout_dir, rel_path), str(content), report)
 
 
-def _example_issue_manifest() -> str:
-    return """name: issue
-description: Create an issue document
-
-# Optional command-level conflict override.
-# If omitted, sprout uses `.sprout/config.yaml`.
-# conflict: fail
-
-inputs:
-  - name: name
-    type: string
-    description: Issue slug used in generated file names
-
-  - name: type
-    type: enum
-    enum:
-      - bug
-      - feat
-      - refactor
-    default: bug
-    description: Issue category
-
-assets:
-  - type: dir
-    path: issues
-
-  - type: file
-    path: issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md
-    template: issue.md
-"""
-
-
-def _example_change_manifest() -> str:
-    return """name: change
-description: Create a change folder and proposal
-
-inputs:
-  - name: name
-    type: string
-    description: Change slug
-
-  - name: type
-    type: enum
-    enum:
-      - bug
-      - feat
-      - refactor
-    default: feat
-    description: Change category
-
-assets:
-  - type: dir
-    path: changes/{{YY}}-{{MM}}-{{DD}}_{{name}}
-
-  - type: file
-    path: changes/{{YY}}-{{MM}}-{{DD}}_{{name}}/proposal.md
-    template: proposal.md
-"""
+def _copy_example_command(commands_dir: Path, example_name: str, report: InitReport) -> None:
+    """Copy an example command package from templates/examples/."""
+    templates_dir = _get_templates_dir()
+    example_dir = templates_dir / "examples" / example_name
+    
+    if not example_dir.exists():
+        raise ValidationError(f"Example command '{example_name}' not found")
+    
+    target_dir = commands_dir / example_name
+    _mkdir(target_dir, report)
+    
+    # Copy all files from the example directory
+    for file_path in example_dir.iterdir():
+        if file_path.is_file():
+            content = file_path.read_text(encoding="utf-8")
+            _write_if_missing(target_dir / file_path.name, content, report)
 
 
 def _add_example_commands(commands_dir: Path, report: InitReport) -> None:
-    issue_dir = commands_dir / "issue"
-    change_dir = commands_dir / "change"
-
-    _mkdir(issue_dir, report)
-    _write_if_missing(issue_dir / "manifest.yaml", _example_issue_manifest(), report)
-    _write_if_missing(
-        issue_dir / "issue.md",
-        "# Issue: {{name}}\n\n- Type: {{type}}\n- Date: {{date}}\n",
-        report,
-    )
-
-    _mkdir(change_dir, report)
-    _write_if_missing(change_dir / "manifest.yaml", _example_change_manifest(), report)
-    _write_if_missing(
-        change_dir / "proposal.md",
-        "# Change: {{name}}\n\n- Type: {{type}}\n- Created: {{datetime}}\n",
-        report,
-    )
+    _copy_example_command(commands_dir, "issue", report)
+    _copy_example_command(commands_dir, "change", report)
 
 
 def initialize_workspace(
@@ -350,25 +130,31 @@ def initialize_workspace(
     _mkdir(sprout_dir, report)
     _mkdir(commands_dir, report)
 
-    _write_if_missing(
-        sprout_dir / "config.yaml",
-        _default_config_yaml(),
-        report,
-    )
+    # Write config.yaml from template
+    config_content = _load_template_file("config.yaml")
+    _write_if_missing(sprout_dir / "config.yaml", config_content, report)
 
+    # Load profile
     if profile_file is not None:
         profile_data = _load_profile_from_file(profile_file)
     else:
-        if profile not in BUILTIN_PROFILES:
+        # List available built-in profiles
+        templates_dir = _get_templates_dir()
+        profiles_dir = templates_dir / "profiles"
+        available_profiles = [p.stem for p in profiles_dir.glob("*.json")] if profiles_dir.exists() else []
+        
+        if profile not in available_profiles:
             raise ValidationError(
-                f"Unknown profile '{profile}'. Available: {', '.join(sorted(BUILTIN_PROFILES))}"
+                f"Unknown profile '{profile}'. Available: {', '.join(sorted(available_profiles))}"
             )
-        profile_data = BUILTIN_PROFILES[profile]
+        profile_data = _load_builtin_profile(profile)
 
     _apply_profile(sprout_dir, profile_data, report)
 
+    # Write SKILL document from template
     skill_path = sprout_dir / "skills" / "sprout-authoring" / "SKILL.md"
-    _write_if_missing(skill_path, LOCAL_SKILL_CONTENT, report)
+    skill_content = _load_template_file("skill-authoring.md")
+    _write_if_missing(skill_path, skill_content, report)
 
     if with_examples:
         _add_example_commands(commands_dir, report)

@@ -18,6 +18,7 @@ from .models import (
     GeneratedItem,
     InputSpec,
     ProjectConfig,
+    TemplateValidationIssue,
     ValidationError,
 )
 
@@ -38,6 +39,13 @@ VALID_INPUT_TYPES = {"string", "number", "enum"}
 VALID_ASSET_TYPES = {"file", "dir"}
 VALID_CONFLICT_POLICIES = {"fail", "overwrite", "skip", "rename"}
 VARIABLE_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+
+# Built-in template variables
+BUILTIN_VARIABLES = {
+    "YYYY", "YY", "MM", "DD",
+    "hh", "mm", "ss",
+    "date", "time", "datetime", "timestamp"
+}
 
 
 @dataclass(slots=True)
@@ -86,7 +94,8 @@ def _load_mapping_file(path: Path) -> dict[str, Any]:
             import yaml  # type: ignore
         except ModuleNotFoundError as exc:
             raise ValidationError(
-                f"{path}: YAML support requires PyYAML. Use JSON/TOML or install pyyaml."
+                f"{path}: YAML support requires PyYAML. "
+                f"Install with: uv add --optional yaml  OR  pip install pyyaml"
             ) from exc
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     else:
@@ -359,6 +368,10 @@ def parse_key_value_pairs(items: list[str]) -> dict[str, str]:
     values: dict[str, str] = {}
     for item in items:
         if "=" not in item:
+            if ":" in item:
+                raise ValidationError(
+                    f"Invalid input '{item}'. Use key=value format (with '=', not ':'), e.g. name=my-task"
+                )
             raise ValidationError(
                 f"Invalid input '{item}'. Use key=value format, e.g. name=my-task"
             )
@@ -557,13 +570,23 @@ def _resolve_asset_action(
     if not path_exists:
         return "create", target
 
+    # Type mismatch checks
     if asset.type == "file" and target.is_dir():
         raise GenerationError(f"Target exists as directory but file asset requested: {target}")
     if asset.type == "dir" and target.is_file():
         raise GenerationError(f"Target exists as file but directory asset requested: {target}")
 
+    # Directory special handling: always reuse existing directories
+    # Directories are containers, not content - existing directories should not conflict
+    if asset.type == "dir":
+        return "reuse", target
+
+    # File conflict handling: apply the conflict policy
     if policy == "fail":
-        raise GenerationError(f"Target already exists: {target}")
+        raise GenerationError(
+            f"Target already exists: {target}\n"
+            f"Hint: Use --conflict=skip to skip existing files, or --conflict=overwrite to replace them."
+        )
 
     if policy == "skip":
         return "skip", target
@@ -658,7 +681,7 @@ def build_generation_plan(
     )
 
 
-def apply_generation_plan(plan: list[PlannedAsset], project_root: Path) -> list[GeneratedItem]:
+def apply_generation_plan(plan: list[PlannedAsset], project_root: Path, *, dry_run: bool = False) -> list[GeneratedItem]:
     del project_root  # kept for API symmetry / future hooks
 
     results: list[GeneratedItem] = []
@@ -674,11 +697,12 @@ def apply_generation_plan(plan: list[PlannedAsset], project_root: Path) -> list[
             )
             continue
 
-        if item.asset.type == "dir":
-            item.final_path.mkdir(parents=True, exist_ok=True)
-        else:
-            item.final_path.parent.mkdir(parents=True, exist_ok=True)
-            item.final_path.write_text(item.content or "", encoding="utf-8")
+        if not dry_run:
+            if item.asset.type == "dir":
+                item.final_path.mkdir(parents=True, exist_ok=True)
+            else:
+                item.final_path.parent.mkdir(parents=True, exist_ok=True)
+                item.final_path.write_text(item.content or "", encoding="utf-8")
 
         results.append(
             GeneratedItem(
@@ -690,3 +714,55 @@ def apply_generation_plan(plan: list[PlannedAsset], project_root: Path) -> list[
         )
 
     return results
+
+
+def validate_template_variables(command: CommandSpec) -> list[TemplateValidationIssue]:
+    """Validate that all template variables are defined in inputs or built-ins."""
+    issues: list[TemplateValidationIssue] = []
+    
+    # Collect defined variable names
+    defined_vars = {input_spec.name for input_spec in command.inputs}
+    defined_vars.update(BUILTIN_VARIABLES)
+    
+    # Check each asset's template
+    for asset in command.assets:
+        if asset.type != "file":
+            continue
+        
+        # Get template content
+        template_content = ""
+        if asset.template:
+            template_path = command.package_dir / asset.template
+            if template_path.exists():
+                template_content = template_path.read_text(encoding="utf-8")
+        elif asset.content:
+            template_content = asset.content
+        
+        if not template_content:
+            continue
+        
+        # Extract variables from template
+        used_vars = set(VARIABLE_PATTERN.findall(template_content))
+        
+        # Also check path template
+        path_vars = set(VARIABLE_PATTERN.findall(asset.path))
+        used_vars.update(path_vars)
+        
+        # Find undefined variables
+        undefined = sorted(used_vars - defined_vars)
+        
+        if undefined:
+            template_name = asset.template or "<inline>"
+            # Format: '{{var}}'
+            var_list = ", ".join("'{{" + var + "}}" + "'" for var in undefined)
+            message = f"Template '{template_name}': undefined variable(s) {var_list}"
+            issues.append(
+                TemplateValidationIssue(
+                    command_name=command.name,
+                    template_path=template_name,
+                    undefined_variables=undefined,
+                    message=message,
+                )
+            )
+    
+    return issues

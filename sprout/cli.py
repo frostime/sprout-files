@@ -15,9 +15,10 @@ from .core import (
     effective_conflict_policy,
     load_registry,
     parse_key_value_pairs,
+    validate_template_variables,
 )
 from .models import DiscoveryError, GenerationError, ValidationError
-from .scaffold import BUILTIN_PROFILES, initialize_workspace
+from .scaffold import initialize_workspace
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -30,7 +31,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--profile",
         default="minimal",
-        choices=sorted(BUILTIN_PROFILES.keys()),
+        choices=["minimal", "docs"],
         help="Built-in scaffold profile",
     )
     init_parser.add_argument(
@@ -65,6 +66,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--interactive",
         action="store_true",
         help="Prompt for missing input values",
+    )
+    new_parser.add_argument(
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be generated without creating files",
     )
     new_parser.add_argument(
         "--conflict",
@@ -146,7 +153,18 @@ def _run_doctor() -> int:
         for issue in registry.conflicts:
             print(f"  - {issue.name}: {issue.message}")
 
-    if registry.invalid or registry.conflicts:
+    # Template validation
+    template_issues = []
+    for command in registry.commands.values():
+        issues = validate_template_variables(command)
+        template_issues.extend(issues)
+    
+    if template_issues:
+        print("\nTemplate validation issues:")
+        for issue in template_issues:
+            print(f"  - {issue.command_name}/{issue.template_path}: {issue.message}")
+
+    if registry.invalid or registry.conflicts or template_issues:
         return 1
 
     print("OK")
@@ -183,10 +201,13 @@ def _run_new(args: argparse.Namespace) -> int:
 
     policy = effective_conflict_policy(command, registry.config, args.conflict)
     plan = build_generation_plan(command, registry.root, context, policy)
-    results = apply_generation_plan(plan, registry.root)
+    
+    dry_run = bool(getattr(args, "dry_run", False))
+    results = apply_generation_plan(plan, registry.root, dry_run=dry_run)
 
-    print(f"Executed command: {command.name}")
-    print(f"Conflict policy: {policy}")
+    prefix = "[DRY-RUN] " if dry_run else ""
+    print(f"{prefix}Executed command: {command.name}")
+    print(f"{prefix}Conflict policy: {policy}")
 
     for result in results:
         path = result.final_path
@@ -197,13 +218,15 @@ def _run_new(args: argparse.Namespace) -> int:
 
         action = result.action
         if action == "rename":
-            print(f"  ~ RENAMED -> {rel}")
+            print(f"{prefix}  ~ RENAMED -> {rel}")
         elif action == "overwrite":
-            print(f"  ! OVERWRITE {rel}")
+            print(f"{prefix}  ! OVERWRITE {rel}")
         elif action == "skip":
-            print(f"  - SKIP {rel}")
+            print(f"{prefix}  - SKIP {rel}")
+        elif action == "reuse":
+            print(f"{prefix}  = REUSE {rel}")
         else:
-            print(f"  + CREATE {rel}")
+            print(f"{prefix}  + CREATE {rel}")
 
     return 0
 

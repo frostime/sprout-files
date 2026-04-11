@@ -1,0 +1,13 @@
+{
+  "directories": ["profiles"],
+  "files": [
+    {
+      "path": "README.md",
+      "content": "# .sprout workspace\n\nUse `.sprout/config.yaml` for project defaults and `.sprout/commands/<name>/manifest.yaml` to define generators.\n"
+    },
+    {
+      "path": "profiles/default.json",
+      "content": "{\n  \"name\": \"default\",\n  \"notes\": \"Example profile metadata for team conventions.\"\n}\n"
+    }
+  ]
+}

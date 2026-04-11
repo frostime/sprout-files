@@ -85,7 +85,15 @@ class GeneratedItem:
     asset_type: AssetType
     requested_path: str
     final_path: Path
-    action: Literal["create", "overwrite", "skip", "rename"]
+    action: Literal["create", "overwrite", "skip", "rename", "reuse"]
+
+
+@dataclass(slots=True)
+class TemplateValidationIssue:
+    command_name: str
+    template_path: str
+    undefined_variables: list[str]
+    message: str
 
 
 @dataclass(slots=True)
