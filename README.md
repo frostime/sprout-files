@@ -7,7 +7,7 @@
 - 发现规则：从当前目录向上查找首个 `.sprout/`（类似 `.git`）
 - 命令包目录：`.sprout/commands/<command>/`
 - 默认 authoring 格式：YAML（便于注释、示例和值说明）
-- 输入模式：默认参数输入；`-i/--interactive` 才进入交互
+- 输入模式：支持 `key=value`、`--json`、`--json-file`；TTY 下缺参可引导进入交互
 - 基础类型：`string` / `number` / `enum`（`number` 支持可选 `min/max`）
 - 插值语法：`{{name}}`（仅纯文本替换，不支持逻辑流）
 - 冲突策略：`fail` / `overwrite` / `skip` / `rename`
@@ -30,14 +30,17 @@ sprout list --all
 # 3) 执行命令（默认参数模式，使用 = 连接键值）
 sprout new issue name=my-task type=bug
 
-# 4) 交互模式（程序会提示输入缺失的参数）
-sprout new issue -i
-# 程序提示: name: 
-# 你输入: my-task
-# 程序提示: type choices=['bug', 'feat', 'refactor'] [default=bug]:
-# 你输入: bug (或直接回车使用默认值)
+# 4) 结构化输入（适合 Agent / 长文本 / 含空格值）
+sprout new issue --json '{"name":"my task","type":"bug"}'
+sprout new issue --json-file ./inputs.json
 
-# 5) 预览模式（不实际创建文件）
+# 5) 交互模式
+sprout new issue -i
+# 或者直接 `sprout new issue`
+# 若当前终端是 TTY 且缺少必填参数，sprout 会先询问是否进入交互模式
+# 交互中可输入 q / quit / exit 取消
+
+# 6) 预览模式（不实际创建文件）
 sprout new issue name=test type=feat --dry-run
 ```
 
@@ -47,7 +50,7 @@ sprout new issue name=test type=feat --dry-run
 sprout init [--profile minimal|docs] [--profile-file ./profile.json] [--with-examples]
 sprout list [--all]
 sprout doctor
-sprout new <command> [key=value ...] [--set key=value] [-i|--interactive] [--conflict fail|overwrite|skip|rename]
+sprout new <command> [key=value ...] [--json '{...}' | --json-file ./inputs.json] [--set key=value] [-i|--interactive] [--no-input] [--conflict fail|overwrite|skip|rename]
 ```
 
 ## `.sprout/` 结构
@@ -177,6 +180,14 @@ sprout new issue name=another type=feat
 #   Error: Target already exists: issues/26-04-11_another.md
 #   Hint: Use --conflict=skip or --conflict=overwrite
 ```
+
+## 交互与 Agent 调用建议
+
+- **TTY 下缺参**：sprout 会先说明缺了哪些字段，再询问是否进入交互模式
+- **非 TTY 下缺参**：sprout 不会等待输入，而是直接失败，避免脚本或 Agent 卡住
+- **显式 `-i` 但非 TTY**：会报错 `Interactive mode requires a TTY`
+- **复杂输入**：优先使用 `--json` 或 `--json-file`，比 shell 中拼接 `key=value` 更稳
+- **临时覆盖**：可在 `--json` / `--json-file` 基础上再用 `--set key=value` 覆盖字段
 
 ## Agent authoring 建议
 

@@ -126,5 +126,17 @@ After editing, run:
 ```bash
 sprout doctor
 sprout list --all
-sprout new <command> ...
+sprout new <command> name=test
+sprout new <command> --json '{"name":"test"}'
 ```
+
+## Runtime input guidance
+
+- Human-friendly quick path: `sprout new <command> name=value ...`
+- Agent / script-friendly path: `sprout new <command> --json '{...}'`
+- Most reliable structured input path: `sprout new <command> --json-file ./inputs.json`
+- `--set key=value` can override values provided by `--json` / `--json-file`
+- If required inputs are missing, sprout only offers interactive fill-in when running in a TTY
+- In non-TTY environments, missing required inputs fail fast instead of waiting for input
+- Use `--no-input` to explicitly disable all interactive prompts
+- In interactive prompts, `q`, `quit`, `exit`, or `Ctrl+C` cancels the run

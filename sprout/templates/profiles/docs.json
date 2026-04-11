@@ -3,7 +3,7 @@
   "files": [
     {
       "path": "README.md",
-      "content": "# .sprout workspace\n\nUse `.sprout/config.yaml` for project defaults and `.sprout/commands/<name>/manifest.yaml` to define generators.\n"
+      "content": "# .sprout workspace\n\nUse `.sprout/config.yaml` for project defaults and `.sprout/commands/<name>/manifest.yaml` to define generators.\n\n## Recommended validation\n\n```bash\nsprout list --all\nsprout doctor\nsprout new <command> name=test\nsprout new <command> --json '{\"name\":\"test\"}'\n```\n\nRuntime notes:\n- TTY terminals can offer interactive fill-in for missing required inputs\n- Non-TTY environments fail fast instead of waiting for input\n- `--json` / `--json-file` are recommended for Agent or script-driven calls\n"
     },
     {
       "path": "profiles/default.json",

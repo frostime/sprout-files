@@ -1,0 +1,24 @@
+name: task
+description: Create a task folder and note
+
+inputs:
+  - name: name
+    type: string
+    description: Task slug
+
+  - name: type
+    type: enum
+    enum:
+      - bug
+      - feat
+      - refactor
+    default: feat
+    description: Task category
+
+assets:
+  - type: dir
+    path: tasks/{{YY}}-{{MM}}-{{DD}}_{{name}}
+
+  - type: file
+    path: tasks/{{YY}}-{{MM}}-{{DD}}_{{name}}/task.md
+    template: task.md

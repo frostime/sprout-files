@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from . import __version__
 from .core import (
@@ -13,11 +13,16 @@ from .core import (
     build_variable_context,
     collect_inputs,
     effective_conflict_policy,
+    find_missing_required_inputs,
+    load_json_input_file,
     load_registry,
+    merge_input_sources,
+    parse_json_input,
     parse_key_value_pairs,
+    suggest_command_names,
     validate_template_variables,
 )
-from .models import DiscoveryError, GenerationError, ValidationError
+from .models import DiscoveryError, GenerationError, UserAbortError, ValidationError
 from .scaffold import initialize_workspace
 
 
@@ -43,7 +48,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--with-examples",
         action="store_true",
-        help="Add example command packages (issue/change)",
+        help="Add example command packages (issue/task)",
     )
 
     list_parser = subparsers.add_parser("list", help="List discovered commands")
@@ -54,6 +59,18 @@ def _build_parser() -> argparse.ArgumentParser:
     new_parser = subparsers.add_parser("new", help="Generate assets from a command package")
     new_parser.add_argument("command_name", help="Command name to execute")
     new_parser.add_argument("pairs", nargs="*", help="Input values as key=value")
+    new_parser.add_argument(
+        "--json",
+        dest="json_input",
+        default=None,
+        help="JSON object containing input values",
+    )
+    new_parser.add_argument(
+        "--json-file",
+        type=Path,
+        default=None,
+        help="Path to a JSON file containing input values",
+    )
     new_parser.add_argument(
         "--set",
         dest="set_values",
@@ -66,6 +83,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--interactive",
         action="store_true",
         help="Prompt for missing input values",
+    )
+    new_parser.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Disable all interactive prompts",
     )
     new_parser.add_argument(
         "-n",
@@ -158,7 +180,7 @@ def _run_doctor() -> int:
     for command in registry.commands.values():
         issues = validate_template_variables(command)
         template_issues.extend(issues)
-    
+
     if template_issues:
         print("\nTemplate validation issues:")
         for issue in template_issues:
@@ -171,11 +193,74 @@ def _run_doctor() -> int:
     return 0
 
 
+def _is_tty_session() -> bool:
+    return bool(sys.stdin.isatty() and sys.stdout.isatty())
+
+
+def _read_confirmation(message: str) -> bool:
+    answer = input(message).strip().lower()
+    if answer in {"", "y", "yes"}:
+        return True
+    if answer in {"n", "no", "q", "quit", "exit"}:
+        return False
+    print("Please answer y/yes or n/no.")
+    return _read_confirmation(message)
+
+
+def _build_input_sources(args: argparse.Namespace) -> dict[str, Any]:
+    base: dict[str, Any] = {}
+    if args.json_input is not None and args.json_file is not None:
+        raise ValidationError("Use either --json or --json-file, not both")
+    if args.json_input is not None:
+        base = parse_json_input(args.json_input)
+    elif args.json_file is not None:
+        base = load_json_input_file(args.json_file)
+
+    pair_values = parse_key_value_pairs(list(args.pairs))
+    set_values = parse_key_value_pairs(list(args.set_values))
+    merged = merge_input_sources(base, pair_values)
+    return merge_input_sources(merged, set_values)
+
+
+def _print_missing_input_guidance(command, missing_specs) -> None:
+    names = ", ".join(spec.name for spec in missing_specs)
+    print(f"Missing required inputs: {names}", file=sys.stderr)
+    print("Required fields:", file=sys.stderr)
+    for spec in missing_specs:
+        detail = spec.description or "No description provided."
+        print(f"  - {spec.name}: {detail}", file=sys.stderr)
+    print(f"Hint: run `sprout new {command.name} -i` to fill inputs interactively.", file=sys.stderr)
+    print(
+        f"Hint: or pass structured input with `sprout new {command.name} --json '{{\"{missing_specs[0].name}\":\"value\"}}'`.",
+        file=sys.stderr,
+    )
+
+
+def _print_interactive_summary(command, values: dict[str, Any], policy: str, plan, root: Path) -> None:
+    print("Interactive summary")
+    print(f"Command: {command.name}")
+    print("Inputs:")
+    for spec in command.inputs:
+        if spec.name in values:
+            print(f"  - {spec.name} = {values[spec.name]}")
+    print(f"Conflict policy: {policy}")
+    print("Planned outputs:")
+    for item in plan:
+        try:
+            rel = item.final_path.relative_to(root)
+        except ValueError:
+            rel = item.final_path
+        print(f"  - {item.action.upper()} {rel}")
+
+
 def _run_new(args: argparse.Namespace) -> int:
     registry = load_registry(Path.cwd())
 
     if args.command_name not in registry.commands:
         print(f"Command not available: {args.command_name}", file=sys.stderr)
+        suggestions = suggest_command_names(args.command_name, sorted(registry.commands.keys()))
+        if suggestions:
+            print(f"Did you mean: {', '.join(suggestions)}", file=sys.stderr)
 
         conflicting = [issue for issue in registry.conflicts if issue.name == args.command_name]
         invalid = [issue for issue in registry.invalid if issue.name == args.command_name]
@@ -185,23 +270,54 @@ def _run_new(args: argparse.Namespace) -> int:
         for issue in invalid:
             print(f"Invalid: {issue.message}", file=sys.stderr)
 
-        available = ", ".join(sorted(registry.commands.keys())) or "<none>"
-        print(f"Available commands: {available}", file=sys.stderr)
+        if registry.commands:
+            print("Available commands:", file=sys.stderr)
+            for name in sorted(registry.commands):
+                command = registry.commands[name]
+                desc = f": {command.description}" if command.description else ""
+                print(f"  - {name}{desc}", file=sys.stderr)
+        else:
+            print("Available commands: <none>", file=sys.stderr)
+        print("Hint: run `sprout list` to inspect all commands.", file=sys.stderr)
         return 1
 
     command = registry.commands[args.command_name]
-    provided_pairs = parse_key_value_pairs(list(args.pairs) + list(args.set_values))
+    provided = _build_input_sources(args)
+
+    if args.interactive and not _is_tty_session():
+        raise ValidationError("Interactive mode requires a TTY")
+
+    missing_specs = find_missing_required_inputs(command, provided)
+    interactive_mode = bool(args.interactive)
+
+    if missing_specs and not interactive_mode:
+        _print_missing_input_guidance(command, missing_specs)
+        if args.no_input:
+            return 1
+        if _is_tty_session():
+            if not _read_confirmation("Enter interactive mode? [Y/n] "):
+                print("Cancelled. No files were created.", file=sys.stderr)
+                return 1
+            interactive_mode = True
+        else:
+            return 1
 
     values = collect_inputs(
         command,
-        provided_pairs,
-        interactive=bool(args.interactive),
+        provided,
+        interactive=interactive_mode,
     )
     context = build_variable_context(values)
 
     policy = effective_conflict_policy(command, registry.config, args.conflict)
     plan = build_generation_plan(command, registry.root, context, policy)
-    
+
+    if interactive_mode:
+        _print_interactive_summary(command, values, policy, plan, registry.root)
+        if not _read_confirmation("Proceed? [Y/n] "):
+            print("Cancelled. No files were created.", file=sys.stderr)
+            return 1
+
     dry_run = bool(getattr(args, "dry_run", False))
     results = apply_generation_plan(plan, registry.root, dry_run=dry_run)
 
@@ -248,6 +364,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 1
 
+    except UserAbortError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except (DiscoveryError, ValidationError, GenerationError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

@@ -26,6 +26,10 @@ class GenerationError(SproutError):
     """Raised when generation cannot proceed safely."""
 
 
+class UserAbortError(SproutError):
+    """Raised when the user cancels an interactive flow."""
+
+
 @dataclass(slots=True)
 class InputSpec:
     name: str

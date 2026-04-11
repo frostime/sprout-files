@@ -60,3 +60,5 @@ Format each entry as: `- YYYY-MM-DD: <learning>`
 Prune entries that become outdated or graduate to Conventions/spec-docs. -->
 
 - 2026-04-11: Project initialized with SSPEC protocol. Core implementation complete with init/list/doctor/new commands. Uses upward discovery pattern for `.sprout/` directory. Supports YAML/TOML/JSON manifests at runtime. Template engine is simple text replacement only (no logic/conditionals).
+- 2026-04-11: `sprout new` now supports structured input via `--json` and `--json-file`, with TTY-only interactive fallback and `--no-input` for explicit non-interactive runs.
+- 2026-04-11: Default scaffold examples use `issue` and `task`; avoid `change` as a user-facing example name to prevent confusion with this repo's `.sspec` workflow.

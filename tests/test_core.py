@@ -6,13 +6,18 @@ import unittest
 from pathlib import Path
 
 from sprout.core import (
+    build_prompt_info,
     build_variable_context,
     collect_inputs,
     discover_project_root,
+    find_missing_required_inputs,
     load_command_spec,
+    load_json_input_file,
     load_registry,
+    merge_input_sources,
+    parse_json_input,
 )
-from sprout.models import ValidationError
+from sprout.models import UserAbortError, ValidationError
 
 
 def _write(path: Path, content: str) -> None:
@@ -137,6 +142,68 @@ class CoreTests(unittest.TestCase):
             )
             context = build_variable_context(values)
             self.assertEqual(context["priority"], 2)
+
+    def test_parse_json_input_accepts_object_only(self) -> None:
+        parsed = parse_json_input('{"name": "demo", "priority": 2}')
+        self.assertEqual(parsed['name'], 'demo')
+        self.assertEqual(parsed['priority'], 2)
+
+        with self.assertRaises(ValidationError):
+            parse_json_input('[1, 2, 3]')
+
+        with self.assertRaises(ValidationError):
+            parse_json_input('{"meta": {"nested": true}}')
+
+    def test_load_json_input_file_and_merge_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            json_path = root / 'inputs.json'
+            json_path.write_text('{"name": "json-name", "type": "bug"}', encoding='utf-8')
+
+            loaded = load_json_input_file(json_path)
+            merged = merge_input_sources(loaded, {'name': 'override'})
+            self.assertEqual(merged['name'], 'override')
+            self.assertEqual(merged['type'], 'bug')
+
+    def test_find_missing_required_inputs_and_prompt_info(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            command_dir = root / '.sprout' / 'commands' / 'issue'
+            _write(command_dir / 'manifest.json', _manifest('issue'))
+            _write(command_dir / 'template.md', '# {{name}}')
+
+            command = load_command_spec(command_dir)
+            missing = find_missing_required_inputs(command, {'type': 'bug'})
+            self.assertEqual([spec.name for spec in missing], ['name'])
+
+            prompt_info = build_prompt_info(command.inputs[1])
+            self.assertIn('choices:', prompt_info.detail)
+
+    def test_collect_inputs_interactive_cancel_and_required_empty_string(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            command_dir = root / '.sprout' / 'commands' / 'issue'
+            _write(command_dir / 'manifest.json', _manifest('issue'))
+            _write(command_dir / 'template.md', '# {{name}}')
+
+            command = load_command_spec(command_dir)
+
+            answers = iter(['', 'valid-name'])
+            values = collect_inputs(
+                command,
+                {'type': 'bug'},
+                interactive=True,
+                prompt=lambda _: next(answers),
+            )
+            self.assertEqual(values['name'], 'valid-name')
+
+            with self.assertRaises(UserAbortError):
+                collect_inputs(
+                    command,
+                    {'type': 'bug'},
+                    interactive=True,
+                    prompt=lambda _: 'q',
+                )
 
 
 if __name__ == "__main__":
