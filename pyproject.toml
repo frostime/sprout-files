@@ -1,6 +1,6 @@
 [project]
 name = "sprout-files"
-version = "0.2.1"
+version = "0.3.0"
 description = "Template-driven file and directory generator for project workflows"
 readme = "README.md"
 requires-python = ">=3.10"
