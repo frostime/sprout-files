@@ -1,5 +1,5 @@
 - 使用 uv 开发，使用 `uv run` 运行开发中的 sprout
-- 在 temp/ 目录下测试 sprout 的行为
+- 在 temp/<runtime-test-dir> 目录下测试 sprout 的行为
 
 <!-- SSPEC:START -->
 # .sspec Agent Protocol
