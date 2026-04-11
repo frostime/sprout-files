@@ -1,5 +1,5 @@
 [project]
-name = "sprout-cli"
+name = "sprout-files"
 version = "0.2.1"
 description = "Template-driven file and directory generator for project workflows"
 readme = "README.md"
