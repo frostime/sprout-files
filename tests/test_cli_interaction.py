@@ -17,7 +17,7 @@ def _write(path: Path, content: str) -> None:
 
 
 def _create_workspace(root: Path) -> None:
-    command_dir = root / '.sprout' / 'commands' / 'issue'
+    command_dir = root / '.sprout' / '__new__' / 'issue'
     _write(
         command_dir / 'manifest.json',
         json.dumps(
@@ -59,6 +59,57 @@ class CliInteractionTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn('Sprout Command Authoring Guide', stdout.getvalue())
+
+    def test_builtin_creates_manifest_template(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / '.sprout').mkdir()
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with patch('pathlib.Path.cwd', return_value=root):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(['builtin', 'demo'])
+
+            self.assertEqual(exit_code, 0)
+            manifest = root / '.sprout' / '__new__' / 'demo' / 'manifest.yaml'
+            self.assertTrue(manifest.exists())
+            content = manifest.read_text(encoding='utf-8')
+            self.assertIn('name: demo', content)
+            self.assertIn('Replace this inline content with your real template.', content)
+
+    def test_buildin_alias_works(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / '.sprout').mkdir()
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with patch('pathlib.Path.cwd', return_value=root):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(['buildin', 'demo'])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((root / '.sprout' / '__new__' / 'demo' / 'manifest.yaml').exists())
+
+    def test_builtin_migrates_legacy_commands_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            legacy_command = root / '.sprout' / 'commands' / 'issue'
+            _write(
+                legacy_command / 'manifest.json',
+                json.dumps({'name': 'issue', 'assets': [{'type': 'dir', 'path': 'issues'}]}, ensure_ascii=False, indent=2),
+            )
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with patch('pathlib.Path.cwd', return_value=root):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(['builtin', 'demo'])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((root / '.sprout' / '__new__' / 'issue' / 'manifest.json').exists())
+            self.assertTrue((root / '.sprout' / '__new__' / 'demo' / 'manifest.yaml').exists())
 
     def test_unknown_command_shows_suggestion(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -144,7 +195,7 @@ class CliInteractionTests(unittest.TestCase):
     def test_dry_run_previews_actions_without_executing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            command_dir = root / '.sprout' / 'commands' / 'issue'
+            command_dir = root / '.sprout' / '__new__' / 'issue'
             marker = root / 'marker.txt'
             _write(
                 command_dir / 'manifest.json',

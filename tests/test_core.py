@@ -11,6 +11,7 @@ from sprout.core import (
     collect_inputs,
     discover_project_root,
     find_missing_required_inputs,
+    iter_command_package_dirs,
     load_command_spec,
     load_json_input_file,
     load_registry,
@@ -99,21 +100,39 @@ class CoreTests(unittest.TestCase):
             discovered = discover_project_root(nested)
             self.assertEqual(discovered, root)
 
+    def test_registry_reads_preferred_and_legacy_command_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            preferred = root / '.sprout' / '__new__'
+            legacy = root / '.sprout' / 'commands'
+
+            _write(preferred / 'issue' / 'manifest.json', _manifest('issue'))
+            _write(preferred / 'issue' / 'template.md', '# {{name}}')
+            _write(legacy / 'task' / 'manifest.json', _manifest('task'))
+            _write(legacy / 'task' / 'template.md', '# {{name}}')
+
+            package_dirs = iter_command_package_dirs(root / '.sprout')
+            self.assertEqual([path.name for path in package_dirs], ['issue', 'task'])
+
+            registry = load_registry(root)
+            self.assertEqual(sorted(registry.commands.keys()), ['issue', 'task'])
+
     def test_registry_marks_conflict_and_keeps_invalid_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            commands = root / ".sprout" / "commands"
+            preferred = root / '.sprout' / '__new__'
+            legacy = root / '.sprout' / 'commands'
 
             # valid package A
-            _write(commands / "alpha" / "manifest.json", _manifest("dup"))
-            _write(commands / "alpha" / "template.md", "# {{name}}")
+            _write(preferred / 'alpha' / 'manifest.json', _manifest('dup'))
+            _write(preferred / 'alpha' / 'template.md', '# {{name}}')
 
-            # valid package B with same command name -> conflict
-            _write(commands / "beta" / "manifest.json", _manifest("dup"))
-            _write(commands / "beta" / "template.md", "# {{name}}")
+            # valid package B with same command name -> conflict across dirs
+            _write(legacy / 'beta' / 'manifest.json', _manifest('dup'))
+            _write(legacy / 'beta' / 'template.md', '# {{name}}')
 
             # invalid package should not break others
-            _write(commands / "broken" / "manifest.json", json.dumps({"name": "broken"}))
+            _write(legacy / 'broken' / 'manifest.json', json.dumps({'name': 'broken'}))
 
             registry = load_registry(root)
             self.assertEqual(registry.commands, {})

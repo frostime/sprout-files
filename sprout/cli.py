@@ -25,7 +25,7 @@ from .core import (
     validate_template_variables,
 )
 from .models import DiscoveryError, GenerationError, UserAbortError, ValidationError
-from .scaffold import initialize_workspace
+from .scaffold import create_builtin_command_template, initialize_workspace
 
 
 def _docs_dir() -> Path:
@@ -79,6 +79,12 @@ def _build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--all", action="store_true", help="Include invalid/conflicting commands")
 
     subparsers.add_parser("doctor", help="Validate command registry and report issues")
+
+    builtin_parser = subparsers.add_parser("builtin", help="Create a built-in command manifest template")
+    builtin_parser.add_argument("name", help="Command package name")
+
+    buildin_parser = subparsers.add_parser("buildin", help=argparse.SUPPRESS)
+    buildin_parser.add_argument("name", help=argparse.SUPPRESS)
 
     doc_parser = subparsers.add_parser("doc", help="Show built-in documentation")
     doc_subparsers = doc_parser.add_subparsers(dest="doc_action", required=True)
@@ -235,6 +241,17 @@ def _get_builtin_doc(name: str) -> Path:
     if not path.exists():
         raise ValidationError(f"Built-in document not found: {name}")
     return path
+
+
+def _run_builtin(args: argparse.Namespace) -> int:
+    manifest_path, created = create_builtin_command_template(Path.cwd(), args.name)
+    action = 'Created' if created else 'Exists'
+    print(f'{action}: {manifest_path}')
+    if created:
+        print('Next: edit manifest.yaml, then run `sprout doctor` and `sprout list --all`.')
+    else:
+        print('Skipped: manifest already exists; no files were overwritten.')
+    return 0
 
 
 def _run_doc(args: argparse.Namespace) -> int:
@@ -444,6 +461,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_list(args)
         if args.command == "doctor":
             return _run_doctor()
+        if args.command in {"builtin", "buildin"}:
+            return _run_builtin(args)
         if args.command == "doc":
             return _run_doc(args)
         if args.command == "new":

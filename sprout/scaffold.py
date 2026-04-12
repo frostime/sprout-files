@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .core import authoring_directories
 from .models import InitReport, ValidationError
 
 
@@ -92,6 +93,73 @@ def _apply_profile(sprout_dir: Path, profile_data: dict[str, Any], report: InitR
         _write_if_missing(_safe_target(sprout_dir, rel_path), str(content), report)
 
 
+def _replace_command_name(content: str, name: str) -> str:
+    return content.replace('__COMMAND_NAME__', name)
+
+
+def ensure_preferred_commands_dir(sprout_dir: Path, report: InitReport | None = None) -> Path:
+    preferred_dir, legacy_dir = authoring_directories(sprout_dir)
+
+    if legacy_dir.exists() and legacy_dir.is_file():
+        raise ValidationError(f'Legacy commands path is not a directory: {legacy_dir}')
+    if preferred_dir.exists() and preferred_dir.is_file():
+        raise ValidationError(f'Preferred commands path is not a directory: {preferred_dir}')
+
+    if legacy_dir.exists() and not preferred_dir.exists():
+        legacy_dir.rename(preferred_dir)
+        if report is not None:
+            report.created.append(preferred_dir)
+            report.notes.append(f'Migrated legacy authoring directory: {legacy_dir.name} -> {preferred_dir.name}')
+        return preferred_dir
+
+    if not preferred_dir.exists():
+        preferred_dir.mkdir(parents=True, exist_ok=True)
+        if report is not None:
+            report.created.append(preferred_dir)
+
+    if legacy_dir.exists():
+        moved_any = False
+        for child in sorted(legacy_dir.iterdir()):
+            if not child.is_dir():
+                continue
+            target = preferred_dir / child.name
+            if target.exists():
+                continue
+            child.rename(target)
+            moved_any = True
+            if report is not None:
+                report.created.append(target)
+        try:
+            legacy_dir.rmdir()
+        except OSError:
+            pass
+        else:
+            if report is not None and moved_any:
+                report.notes.append('Merged legacy commands/ packages into __new__/ where safe.')
+
+    return preferred_dir
+
+
+def create_builtin_command_template(project_root: Path, name: str) -> tuple[Path, bool]:
+    if not name.strip():
+        raise ValidationError('Command name must be a non-empty string')
+
+    sprout_dir = project_root / '.sprout'
+    if not sprout_dir.exists():
+        raise ValidationError("No project template root found. Expected '.sprout/' in current directory or ancestors.")
+
+    commands_dir = ensure_preferred_commands_dir(sprout_dir)
+    command_dir = commands_dir / name
+    manifest_path = command_dir / 'manifest.yaml'
+    if manifest_path.exists():
+        return manifest_path, False
+
+    content = _replace_command_name(_load_template_file('builtin-command-manifest.yaml'), name)
+    command_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(content, encoding='utf-8')
+    return manifest_path, True
+
+
 def _copy_example_command(commands_dir: Path, example_name: str, report: InitReport) -> None:
     """Copy an example command package from templates/examples/."""
     templates_dir = _get_templates_dir()
@@ -124,11 +192,10 @@ def initialize_workspace(
 ) -> InitReport:
     report = InitReport()
 
-    sprout_dir = project_root / ".sprout"
-    commands_dir = sprout_dir / "commands"
+    sprout_dir = project_root / '.sprout'
 
     _mkdir(sprout_dir, report)
-    _mkdir(commands_dir, report)
+    commands_dir = ensure_preferred_commands_dir(sprout_dir, report)
 
     # Write config.yaml from template
     config_content = _load_template_file("config.yaml")
@@ -154,8 +221,9 @@ def initialize_workspace(
     if with_examples:
         _add_example_commands(commands_dir, report)
 
-    report.notes.append("Agent 协作建议：先对齐命令目的、输入字段、输出资产与冲突策略，再生成模板文件。")
-    report.notes.append("默认 authoring 格式已改为 YAML：先看 .sprout/config.yaml 与 commands/*/manifest.yaml。")
-    report.notes.append("内置文档可通过 `sprout doc list`、`sprout doc show command-authoring-guide` 查看。")
+    report.notes.append('Agent 协作建议：先对齐命令目的、输入字段、输出资产与冲突策略，再生成模板文件。')
+    report.notes.append('默认 authoring 路径为 .sprout/__new__/*/manifest.yaml；运行时兼容旧版 commands/*。')
+    report.notes.append('可用 `sprout builtin <name>` 快速生成带注释的 manifest.yaml 起点模板。')
+    report.notes.append('内置文档可通过 `sprout doc list`、`sprout doc show command-authoring-guide` 查看。')
 
     return report

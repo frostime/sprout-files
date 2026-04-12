@@ -30,7 +30,7 @@ It answers:
 
 > How do I run `sprout init`, `sprout list`, `sprout doctor`, and `sprout new`?
 
-If you need to create or maintain `.sprout/commands/*`, read:
+If you need to create or maintain `.sprout/__new__/*` command packages (runtime also reads legacy `.sprout/commands/*`), read:
 
 ```bash
 sprout doc show command-authoring-guide
@@ -76,6 +76,23 @@ Validate the command registry and report issues (invalid manifests, conflicts, t
 sprout doctor
 ```
 
+### `sprout builtin <name>`
+
+Create a commented starter manifest for a new command package.
+
+```bash
+sprout builtin demo
+sprout buildin demo   # compatibility alias
+```
+
+By default this creates:
+
+```text
+.sprout/__new__/demo/manifest.yaml
+```
+
+If a legacy `.sprout/commands/` directory exists, sprout will migrate or merge safe subdirectories into `.sprout/__new__/` before writing the new manifest.
+
 ### `sprout doc`
 
 Show built-in documentation.
@@ -120,13 +137,14 @@ sprout new issue name=login type=feat
 ```
 .sprout/
 ├── config.yaml
-└── commands/
-    └── <command>/
-        ├── manifest.yaml
-        └── <template files>
+├── __new__/
+│   └── <command>/
+│       ├── manifest.yaml
+│       └── <template files>
+└── commands/   # legacy layout, still readable
 ```
 
-This is the runtime workspace layout.
+This is the preferred workspace layout. Runtime discovery reads both `__new__/` and legacy `commands/`.
 
 If you need the full manifest schema, variable reference, or command package authoring rules, use:
 

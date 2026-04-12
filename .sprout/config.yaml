@@ -1,0 +1,6 @@
+# sprout project defaults
+version: 1
+
+# Default conflict policy for generated files/directories.
+# Allowed: fail | overwrite | skip | rename
+conflict: fail

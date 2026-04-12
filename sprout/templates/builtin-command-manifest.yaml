@@ -1,0 +1,37 @@
+name: __COMMAND_NAME__
+description: Describe what this command generates
+
+# Optional per-command conflict override.
+# If omitted, sprout uses `.sprout/config.yaml`.
+# conflict: fail
+
+# Define the values users must pass to `sprout new __COMMAND_NAME__`.
+inputs:
+  - name: name
+    type: string
+    description: Primary identifier used in generated paths
+
+# Generated files/directories. Keep short templates inline with `content`,
+# or switch to `template: some-file.md` after you create that file manually.
+assets:
+  - type: dir
+    path: output
+    ref: output_dir
+
+  - type: file
+    path: "{{assets.output_dir.rel_path}}/{{name}}.md"
+    content: |
+      # {{name}}
+
+      Replace this inline content with your real template.
+
+      Tips:
+      - Keep `content` when the template is short
+      - Or replace it with `template: template.md` after creating that file
+      - Run `sprout doctor` to validate the command package
+
+# Optional post-generation commands.
+# actions:
+#   - phase: post
+#     run: ["git", "status"]
+#     cwd: "{{project.root}}"

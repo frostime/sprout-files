@@ -60,6 +60,8 @@ BUILTIN_VARIABLES = {
     'date', 'time', 'datetime', 'timestamp',
 }
 PROJECT_VARIABLES = {'project.root', 'project.root_name'}
+PREFERRED_COMMANDS_DIRNAME = '__new__'
+LEGACY_COMMANDS_DIRNAME = 'commands'
 
 
 @dataclass(slots=True)
@@ -106,6 +108,24 @@ def discover_project_root(start: Path, directory_name: str = '.sprout') -> Path:
     raise DiscoveryError(
         "No project template root found. Expected '.sprout/' in current directory or ancestors."
     )
+
+
+def authoring_directories(sprout_dir: Path) -> tuple[Path, Path]:
+    return sprout_dir / PREFERRED_COMMANDS_DIRNAME, sprout_dir / LEGACY_COMMANDS_DIRNAME
+
+
+def iter_command_package_dirs(sprout_dir: Path) -> list[Path]:
+    preferred_dir, legacy_dir = authoring_directories(sprout_dir)
+    package_dirs: list[Path] = []
+
+    for commands_dir in (preferred_dir, legacy_dir):
+        if not commands_dir.exists() or not commands_dir.is_dir():
+            continue
+        for child in sorted(commands_dir.iterdir()):
+            if child.is_dir():
+                package_dirs.append(child)
+
+    return package_dirs
 
 
 def _load_mapping_file(path: Path) -> dict[str, Any]:
@@ -410,19 +430,15 @@ def load_registry(start_dir: Path) -> CommandRegistry:
     root = discover_project_root(start_dir)
     sprout_dir = root / '.sprout'
     config = _read_project_config(sprout_dir)
-    commands_dir = sprout_dir / 'commands'
 
     loaded: list[CommandSpec] = []
     invalid: list[CommandIssue] = []
 
-    if commands_dir.exists():
-        for child in sorted(commands_dir.iterdir()):
-            if not child.is_dir():
-                continue
-            try:
-                loaded.append(load_command_spec(child))
-            except ValidationError as exc:
-                invalid.append(CommandIssue(name=child.name, source=child, message=str(exc)))
+    for child in iter_command_package_dirs(sprout_dir):
+        try:
+            loaded.append(load_command_spec(child))
+        except ValidationError as exc:
+            invalid.append(CommandIssue(name=child.name, source=child, message=str(exc)))
 
     grouped: dict[str, list[CommandSpec]] = {}
     for command in loaded:

@@ -1,12 +1,12 @@
 # Sprout Command Authoring Guide
 
-> How to create and maintain `.sprout/commands/*` command packages.
+> How to create and maintain `.sprout/__new__/*` command packages (runtime also reads legacy `.sprout/commands/*`).
 
 ---
 
 ## Positioning
 
-This guide is for **command package authors** and **Agents** that edit `.sprout/commands/*`.
+This guide is for **command package authors** and **Agents** that edit `.sprout/__new__/*`.
 
 It answers:
 
@@ -20,7 +20,7 @@ If you only need to **use** Sprout commands (`init`, `list`, `new`, `doctor`), r
 - `command-authoring-guide`: how to write Sprout command packages
 
 Rule of thumb:
-- Content needed even when you never edit `.sprout/commands/*` → `user-guide`
+- Content needed even when you never edit `.sprout/__new__/*` → `user-guide`
 - Content needed only when creating or maintaining command packages → this guide
 
 ---
@@ -43,8 +43,15 @@ If any of these are unclear, ask first. Do not guess package structure.
 For command `<name>`, usually touch:
 
 - `.sprout/config.yaml` — project-level defaults such as `conflict`
-- `.sprout/commands/<name>/manifest.yaml` — command definition
+- `.sprout/__new__/<name>/manifest.yaml` — preferred command definition path
 - Template files referenced by `assets[*].template`
+
+Quick bootstrap:
+
+```bash
+sprout builtin <name>
+sprout buildin <name>   # compatibility alias
+```
 
 ---
 
@@ -64,7 +71,7 @@ conflict: fail
 
 ---
 
-## Command manifest: `.sprout/commands/<name>/manifest.yaml`
+## Command manifest: `.sprout/__new__/<name>/manifest.yaml`
 
 ```yaml
 name: issue
@@ -196,3 +203,9 @@ sprout new <command> name=test --dry-run
 - In non-TTY environments, missing required inputs fail fast instead of waiting for input
 - Use `--no-input` to explicitly disable all interactive prompts
 - In interactive prompts, `q`, `quit`, `exit`, or `Ctrl+C` cancels the run
+
+## Compatibility note
+
+- Preferred authoring directory: `.sprout/__new__/`
+- Legacy directory still read at runtime: `.sprout/commands/`
+- When sprout writes new built-in scaffolds or initializes a workspace, it prefers `__new__/` and migrates safe legacy subdirectories automatically

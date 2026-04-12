@@ -5,7 +5,7 @@
 ## 核心特性
 
 - 从当前目录向上查找首个 `.sprout/`（类似 `.git`）
-- 命令包目录：`.sprout/commands/<command>/`
+- 命令包目录：首选 `.sprout/__new__/<command>/`，运行时兼容旧版 `.sprout/commands/<command>/`
 - 输入模式：支持 `key=value`、`--json`、`--json-file`
 - TTY 下缺参可引导进入交互模式，非 TTY 下快速失败
 - 冲突策略：`fail` / `overwrite` / `skip` / `rename`
@@ -32,7 +32,10 @@ uv run sprout new issue name=my-task type=bug
 uv run sprout new issue --json '{"name":"my task","type":"bug"}'
 uv run sprout new issue --json-file ./inputs.json
 
-# 5) 预览
+# 5) 创建新的 command 模板
+uv run sprout builtin demo
+
+# 6) 预览
 uv run sprout new issue name=test type=feat --dry-run
 ```
 
@@ -42,6 +45,8 @@ uv run sprout new issue name=test type=feat --dry-run
 sprout init [--profile minimal|docs] [--profile-file ./profile.json] [--with-examples]
 sprout list [--all]
 sprout doctor
+sprout builtin <name>
+sprout buildin <name>   # alias
 sprout doc list
 sprout doc show <name>
 sprout doc path <name>
@@ -53,10 +58,11 @@ sprout new <command> [key=value ...] [--json '{...}' | --json-file ./inputs.json
 ```text
 .sprout/
   config.yaml
-  commands/
+  __new__/
     issue/
       manifest.yaml
       issue.md
+  commands/   # legacy layout still readable at runtime
 ```
 
 ## 文档入口
@@ -67,7 +73,7 @@ sprout new <command> [key=value ...] [--json '{...}' | --json-file ./inputs.json
 
 边界约定：
 - `user-guide` 讲“怎么使用 sprout”
-- `command-authoring-guide` 讲“怎么编写 `.sprout/commands/*`”
+- `command-authoring-guide` 讲“怎么编写 `.sprout/__new__/*`（兼容旧版 `.sprout/commands/*`）”
 
 ## Agent 协作建议
 

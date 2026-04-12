@@ -15,12 +15,12 @@ class InitTests(unittest.TestCase):
             first = initialize_workspace(root, profile="minimal", profile_file=None, with_examples=True)
             self.assertTrue((root / ".sprout" / "config.yaml").exists())
             self.assertFalse((root / ".sprout" / "skills" / "sprout-authoring" / "SKILL.md").exists())
-            self.assertTrue((root / ".sprout" / "commands" / "issue" / "manifest.yaml").exists())
-            self.assertTrue((root / ".sprout" / "commands" / "task" / "manifest.yaml").exists())
+            self.assertTrue((root / '.sprout' / '__new__' / 'issue' / 'manifest.yaml').exists())
+            self.assertTrue((root / '.sprout' / '__new__' / 'task' / 'manifest.yaml').exists())
             self.assertIn("conflict: fail", (root / ".sprout" / "config.yaml").read_text(encoding="utf-8"))
             self.assertGreater(len(first.created), 0)
 
-            custom_manifest = root / ".sprout" / "commands" / "issue" / "manifest.yaml"
+            custom_manifest = root / '.sprout' / '__new__' / 'issue' / 'manifest.yaml'
             custom_manifest.write_text("name: issue\n", encoding="utf-8")
 
             second = initialize_workspace(root, profile="minimal", profile_file=None, with_examples=True)
@@ -64,11 +64,12 @@ class InitTests(unittest.TestCase):
 
             initialize_workspace(root, profile="minimal", profile_file=None, with_examples=True)
 
-            issue_manifest = (root / ".sprout" / "commands" / "issue" / "manifest.yaml").read_text(
+            issue_manifest = (root / '.sprout' / '__new__' / 'issue' / 'manifest.yaml').read_text(
                 encoding="utf-8"
             )
             self.assertIn("name: issue", issue_manifest)
-            self.assertIn("# Optional command-level conflict override.", issue_manifest)
+            self.assertIn('# Optional command-level conflict override.', issue_manifest)
+            self.assertTrue((root / '.sprout' / '__new__').exists())
             self.assertIn("template: issue.md", issue_manifest)
 
 
