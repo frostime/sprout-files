@@ -41,6 +41,25 @@ def _create_workspace(root: Path) -> None:
 
 
 class CliInteractionTests(unittest.TestCase):
+    def test_doc_list_shows_builtin_documents(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = main(['doc', 'list'])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('user-guide', stdout.getvalue())
+        self.assertIn('command-authoring-guide', stdout.getvalue())
+
+    def test_doc_show_prints_builtin_document(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = main(['doc', 'show', 'command-authoring-guide'])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('Sprout Command Authoring Guide', stdout.getvalue())
+
     def test_unknown_command_shows_suggestion(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -14,7 +14,7 @@ class InitTests(unittest.TestCase):
             root = Path(td)
             first = initialize_workspace(root, profile="minimal", profile_file=None, with_examples=True)
             self.assertTrue((root / ".sprout" / "config.yaml").exists())
-            self.assertTrue((root / ".sprout" / "skills" / "sprout-authoring" / "SKILL.md").exists())
+            self.assertFalse((root / ".sprout" / "skills" / "sprout-authoring" / "SKILL.md").exists())
             self.assertTrue((root / ".sprout" / "commands" / "issue" / "manifest.yaml").exists())
             self.assertTrue((root / ".sprout" / "commands" / "task" / "manifest.yaml").exists())
             self.assertIn("conflict: fail", (root / ".sprout" / "config.yaml").read_text(encoding="utf-8"))

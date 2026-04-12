@@ -28,8 +28,20 @@ from .models import DiscoveryError, GenerationError, UserAbortError, ValidationE
 from .scaffold import initialize_workspace
 
 
+def _docs_dir() -> Path:
+    return Path(__file__).parent / 'docs'
+
+
 def _user_guide_path() -> Path:
-    return Path(__file__).parent / 'docs' / 'user-guide.md'
+    return _docs_dir() / 'user-guide.md'
+
+
+def _builtin_docs() -> dict[str, Path]:
+    docs_dir = _docs_dir()
+    return {
+        'user-guide': docs_dir / 'user-guide.md',
+        'command-authoring-guide': docs_dir / 'command-authoring-guide.md',
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -67,6 +79,14 @@ def _build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--all", action="store_true", help="Include invalid/conflicting commands")
 
     subparsers.add_parser("doctor", help="Validate command registry and report issues")
+
+    doc_parser = subparsers.add_parser("doc", help="Show built-in documentation")
+    doc_subparsers = doc_parser.add_subparsers(dest="doc_action", required=True)
+    doc_subparsers.add_parser("list", help="List built-in documents")
+    doc_show_parser = doc_subparsers.add_parser("show", help="Print a built-in document")
+    doc_show_parser.add_argument("name", help="Document name")
+    doc_path_parser = doc_subparsers.add_parser("path", help="Print the path to a built-in document")
+    doc_path_parser.add_argument("name", help="Document name")
 
     new_parser = subparsers.add_parser("new", help="Generate assets from a command package")
     new_parser.add_argument("command_name", help="Command name to execute")
@@ -203,6 +223,36 @@ def _run_doctor() -> int:
 
     print("OK")
     return 0
+
+
+def _get_builtin_doc(name: str) -> Path:
+    docs = _builtin_docs()
+    if name not in docs:
+        available = ', '.join(sorted(docs))
+        raise ValidationError(f"Unknown document '{name}'. Available: {available}")
+
+    path = docs[name]
+    if not path.exists():
+        raise ValidationError(f"Built-in document not found: {name}")
+    return path
+
+
+def _run_doc(args: argparse.Namespace) -> int:
+    if args.doc_action == 'list':
+        print('Built-in documents:')
+        for name in sorted(_builtin_docs()):
+            print(f'  - {name}')
+        return 0
+
+    path = _get_builtin_doc(args.name)
+    if args.doc_action == 'path':
+        print(path)
+        return 0
+    if args.doc_action == 'show':
+        print(path.read_text(encoding='utf-8'), end='')
+        return 0
+
+    raise ValidationError(f"Unknown doc action: {args.doc_action}")
 
 
 def _is_tty_session() -> bool:
@@ -394,6 +444,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_list(args)
         if args.command == "doctor":
             return _run_doctor()
+        if args.command == "doc":
+            return _run_doc(args)
         if args.command == "new":
             return _run_new(args)
 

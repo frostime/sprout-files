@@ -1,6 +1,6 @@
 # Sprout User Guide
 
-> Template-driven file & directory generator for project workflows.
+> How to use the `sprout` CLI to initialize workspaces, inspect commands, generate files, and troubleshoot runs.
 
 ---
 
@@ -18,6 +18,30 @@ sprout new issue name=my-task type=bug
 
 # Preview without creating files
 sprout new issue name=test type=feat --dry-run
+```
+
+---
+
+## Positioning
+
+This guide is for people who want to **use** Sprout.
+
+It answers:
+
+> How do I run `sprout init`, `sprout list`, `sprout doctor`, and `sprout new`?
+
+If you need to create or maintain `.sprout/commands/*`, read:
+
+```bash
+sprout doc show command-authoring-guide
+```
+
+You can also inspect built-in docs with:
+
+```bash
+sprout doc list
+sprout doc path user-guide
+sprout doc path command-authoring-guide
 ```
 
 ---
@@ -52,6 +76,17 @@ Validate the command registry and report issues (invalid manifests, conflicts, t
 sprout doctor
 ```
 
+### `sprout doc`
+
+Show built-in documentation.
+
+```bash
+sprout doc list
+sprout doc show user-guide
+sprout doc show command-authoring-guide
+sprout doc path command-authoring-guide
+```
+
 ### `sprout new <command>`
 
 Generate files from a command package.
@@ -84,149 +119,20 @@ sprout new issue name=login type=feat
 
 ```
 .sprout/
-├── config.yaml          # Project-level defaults
+├── config.yaml
 └── commands/
-    └── issue/
-        ├── manifest.yaml  # Command definition
-        └── issue.md       # Template file
+    └── <command>/
+        ├── manifest.yaml
+        └── <template files>
 ```
 
-### `config.yaml`
+This is the runtime workspace layout.
 
-```yaml
-version: 1
-conflict: fail    # fail | overwrite | skip | rename
+If you need the full manifest schema, variable reference, or command package authoring rules, use:
+
+```bash
+sprout doc show command-authoring-guide
 ```
-
-### `manifest.yaml`
-
-A manifest defines a command's inputs, outputs, and optional post-actions.
-
-```yaml
-name: issue
-description: Create an issue file
-
-conflict: fail   # optional per-command override
-
-inputs:
-  - name: name
-    type: string
-    required: true
-    description: Issue slug
-
-  - name: type
-    type: enum
-    enum: [bug, feat, refactor]
-    default: bug
-
-  - name: priority
-    type: number
-    required: false
-    min: 1
-    max: 5
-    default: 3
-
-assets:
-  - type: dir
-    path: issues
-    ref: issues_dir
-
-  - type: file
-    path: "{{assets.issues_dir.rel_path}}/{{YY}}-{{MM}}-{{DD}}_{{name}}.md"
-    template: issue.md
-    ref: issue_file
-
-actions:
-  - phase: post
-    run: ["git", "status"]
-    cwd: "{{project.root}}"
-```
-
-#### Input types
-
-| Type | Fields |
-|------|--------|
-| `string` | `name`, `required`, `default`, `description` |
-| `number` | `name`, `required`, `default`, `description`, `min`, `max` |
-| `enum` | `name`, `required`, `default`, `description`, `enum` (list of choices) |
-
-#### Asset types
-
-| Type | Fields |
-|------|--------|
-| `dir` | `path`, `ref` (optional) |
-| `file` | `path`, `template` or `content`, `ref` (optional) |
-
-- `template`: path relative to the command directory
-- `content`: inline string (mutually exclusive with `template`)
-- `ref`: name for cross-referencing in later assets or actions
-
-#### Actions
-
-| Field | Description |
-|-------|-------------|
-| `phase` | Currently only `post` |
-| `run` | Command as argument array (recommended) |
-| `shell` | Command as single shell string |
-| `cwd` | Working directory (supports variables, must be within project root) |
-
-`run` and `shell` are mutually exclusive.
-
----
-
-## Template Variables
-
-### User inputs
-
-All `inputs[*].name` values are available directly: `{{name}}`, `{{type}}`, etc.
-
-### Built-in time variables
-
-| Variable | Example |
-|----------|---------|
-| `{{YYYY}}` | 2026 |
-| `{{YY}}` | 26 |
-| `{{MM}}` | 04 |
-| `{{DD}}` | 12 |
-| `{{hh}}` | 14 |
-| `{{mm}}` | 30 |
-| `{{ss}}` | 05 |
-| `{{date}}` | 2026-04-12 |
-| `{{time}}` | 14:30:05 |
-| `{{datetime}}` | 2026-04-12T14:30:05 |
-| `{{timestamp}}` | 1744451405 |
-
-### Project variables
-
-| Variable | Description |
-|----------|-------------|
-| `{{project.root}}` | Absolute path to project root |
-| `{{project.root_name}}` | Name of the root directory |
-
-### Random variables
-
-| Variable | Description |
-|----------|-------------|
-| `{{rand.str}}` | 8-char alphanumeric string |
-| `{{rand.str:N}}` | N-char alphanumeric string |
-| `{{rand.num}}` | 8-digit number string |
-| `{{rand.num:N}}` | N-digit number string |
-
-### Asset reference variables
-
-When an asset has `ref: foo`, later assets and actions can use:
-
-| Variable | Description |
-|----------|-------------|
-| `{{assets.foo.abs_path}}` | Absolute path |
-| `{{assets.foo.rel_path}}` | Relative path from project root |
-| `{{assets.foo.name}}` | File/dir name |
-| `{{assets.foo.parent_abs}}` | Parent absolute path |
-| `{{assets.foo.parent_rel}}` | Parent relative path |
-
-In `actions[*]`, `{{assets.foo}}` is shorthand for `{{assets.foo.abs_path}}`.
-
-In `assets[*].path`, only refs defined in earlier assets can be referenced.
 
 ---
 
@@ -265,3 +171,4 @@ During interactive prompts, type `q`, `quit`, or `exit` to cancel.
 - Combine `--json` with `--set` to override specific fields
 - Use `--dry-run` to preview before generating
 - All path separators in variable output use `/`
+- To inspect packaged documentation, use `sprout doc list`

@@ -1,17 +1,34 @@
+# Sprout Command Authoring Guide
+
+> How to create and maintain `.sprout/commands/*` command packages.
+
 ---
-name: sprout-authoring
-description: Use this guide when creating/updating `.sprout/commands/*` command packages for this project.
+
+## Positioning
+
+This guide is for **command package authors** and **Agents** that edit `.sprout/commands/*`.
+
+It answers:
+
+> How do I define or update Sprout command packages?
+
+If you only need to **use** Sprout commands (`init`, `list`, `new`, `doctor`), read `user-guide` instead.
+
+### Boundary from `user-guide`
+
+- `user-guide`: how to use Sprout
+- `command-authoring-guide`: how to write Sprout command packages
+
+Rule of thumb:
+- Content needed even when you never edit `.sprout/commands/*` → `user-guide`
+- Content needed only when creating or maintaining command packages → this guide
+
 ---
-
-# sprout-authoring
-
-## Intent
-
-Help users and Agents define or update command packages under `.sprout/commands/`.
 
 ## First align before editing
 
-Before writing any file, confirm these 4 things with the user:
+Before writing any file, confirm these 4 things:
+
 1. **Command purpose**: What should `sprout new <command>` create?
 2. **Inputs**: Which fields are required? What type is each field?
 3. **Assets**: Which files/directories should be generated? Where?
@@ -19,16 +36,19 @@ Before writing any file, confirm these 4 things with the user:
 
 If any of these are unclear, ask first. Do not guess package structure.
 
+---
+
 ## Files to create or edit
 
 For command `<name>`, usually touch:
+
 - `.sprout/config.yaml` — project-level defaults such as `conflict`
 - `.sprout/commands/<name>/manifest.yaml` — command definition
 - Template files referenced by `assets[*].template`
 
-## Data model quick reference
+---
 
-### 1) Project config: `.sprout/config.yaml`
+## Project config: `.sprout/config.yaml`
 
 ```yaml
 # sprout project defaults
@@ -42,7 +62,9 @@ conflict: fail
 - `version`: integer, current value is `1`
 - `conflict`: optional project default, one of `fail`, `overwrite`, `skip`, `rename`
 
-### 2) Command manifest: `.sprout/commands/<name>/manifest.yaml`
+---
+
+## Command manifest: `.sprout/commands/<name>/manifest.yaml`
 
 ```yaml
 name: issue
@@ -91,9 +113,12 @@ actions:
     cwd: "{{project.root}}"
 ```
 
-## Field filling rules
+---
+
+## Field rules
 
 ### `inputs[*]`
+
 - `name`: required, unique within the command
 - `type`: `string` | `number` | `enum`
 - `required`: optional, defaults to `true`
@@ -103,6 +128,7 @@ actions:
 - `min` / `max`: only for `type: number`
 
 ### `assets[*]`
+
 - `type`: `dir` or `file`
 - `path`: required relative path inside the project
 - `template`: for file assets, path to template file inside the same command package
@@ -110,11 +136,14 @@ actions:
 - `ref`: optional stable name for later asset/action references
 
 ### `actions[*]`
+
 - `phase`: currently only `post`
 - `run`: preferred argv form, e.g. `["git", "init"]`
 - `shell`: convenience shell string form
 - `cwd`: optional working directory template
 - exactly one of `run` / `shell`
+
+---
 
 ## Rendering rules
 
@@ -126,9 +155,12 @@ actions:
 - No `if`, `for`, function calls, or nested logic
 - Rendered paths must stay inside the project root and are normalized to `/` separators
 
+---
+
 ## Authoring checklist
 
 Before finishing, verify:
+
 - manifest file path is correct
 - every input has a clear purpose
 - every file asset has either `template` or `content`
@@ -137,6 +169,8 @@ Before finishing, verify:
 - asset-to-asset references only point backward
 - conflict behavior is explicit somewhere (command or project level)
 - action commands use `run` unless shell syntax is truly more ergonomic
+
+---
 
 ## Validation commands
 
@@ -149,6 +183,8 @@ sprout new <command> name=test
 sprout new <command> --json '{"name":"test"}'
 sprout new <command> name=test --dry-run
 ```
+
+---
 
 ## Runtime input guidance
 

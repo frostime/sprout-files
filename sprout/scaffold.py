@@ -151,16 +151,11 @@ def initialize_workspace(
 
     _apply_profile(sprout_dir, profile_data, report)
 
-    # Write SKILL document from template
-    skill_path = sprout_dir / "skills" / "sprout-authoring" / "SKILL.md"
-    skill_content = _load_template_file("skill-authoring.md")
-    _write_if_missing(skill_path, skill_content, report)
-
     if with_examples:
         _add_example_commands(commands_dir, report)
 
     report.notes.append("Agent 协作建议：先对齐命令目的、输入字段、输出资产与冲突策略，再生成模板文件。")
     report.notes.append("默认 authoring 格式已改为 YAML：先看 .sprout/config.yaml 与 commands/*/manifest.yaml。")
-    report.notes.append("本地 Skill 文档已放在 .sprout/skills/sprout-authoring/SKILL.md")
+    report.notes.append("内置文档可通过 `sprout doc list`、`sprout doc show command-authoring-guide` 查看。")
 
     return report
