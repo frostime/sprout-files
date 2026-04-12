@@ -22,7 +22,9 @@ inputs:
 assets:
   - type: dir
     path: issues
+    ref: issues_dir
 
   - type: file
-    path: issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md
+    path: "{{assets.issues_dir.rel_path}}/{{YY}}-{{MM}}-{{DD}}_{{name}}.md"
     template: issue.md
+    ref: issue_file

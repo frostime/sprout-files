@@ -13,12 +13,14 @@ from .core import (
     build_variable_context,
     collect_inputs,
     effective_conflict_policy,
+    execute_actions,
     find_missing_required_inputs,
     load_json_input_file,
     load_registry,
     merge_input_sources,
     parse_json_input,
     parse_key_value_pairs,
+    plan_post_actions,
     suggest_command_names,
     validate_template_variables,
 )
@@ -26,8 +28,18 @@ from .models import DiscoveryError, GenerationError, UserAbortError, ValidationE
 from .scaffold import initialize_workspace
 
 
+def _user_guide_path() -> Path:
+    return Path(__file__).parent / 'docs' / 'user-guide.md'
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="sprout", description="Template-driven project generator")
+    guide = _user_guide_path()
+    parser = argparse.ArgumentParser(
+        prog="sprout",
+        description="Template-driven project generator",
+        epilog=f"User guide: {guide}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--version", action="version", version=f"sprout {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -236,7 +248,7 @@ def _print_missing_input_guidance(command, missing_specs) -> None:
     )
 
 
-def _print_interactive_summary(command, values: dict[str, Any], policy: str, plan, root: Path) -> None:
+def _print_interactive_summary(command, values: dict[str, Any], policy: str, plan, actions, root: Path) -> None:
     print("Interactive summary")
     print(f"Command: {command.name}")
     print("Inputs:")
@@ -251,6 +263,17 @@ def _print_interactive_summary(command, values: dict[str, Any], policy: str, pla
         except ValueError:
             rel = item.final_path
         print(f"  - {item.action.upper()} {rel}")
+    if actions:
+        print("Planned actions:")
+        for action in actions:
+            cwd = ''
+            if action.cwd is not None:
+                try:
+                    cwd_value = action.cwd.relative_to(root)
+                except ValueError:
+                    cwd_value = action.cwd
+                cwd = f" (cwd={cwd_value})"
+            print(f"  - {action.mode.upper()} {action.command_display}{cwd}")
 
 
 def _run_new(args: argparse.Namespace) -> int:
@@ -311,15 +334,17 @@ def _run_new(args: argparse.Namespace) -> int:
 
     policy = effective_conflict_policy(command, registry.config, args.conflict)
     plan = build_generation_plan(command, registry.root, context, policy)
+    preview_results = apply_generation_plan(plan, registry.root, dry_run=True)
+    planned_actions = plan_post_actions(command, registry.root, context, preview_results)
 
     if interactive_mode:
-        _print_interactive_summary(command, values, policy, plan, registry.root)
+        _print_interactive_summary(command, values, policy, plan, planned_actions, registry.root)
         if not _read_confirmation("Proceed? [Y/n] "):
             print("Cancelled. No files were created.", file=sys.stderr)
             return 1
 
     dry_run = bool(getattr(args, "dry_run", False))
-    results = apply_generation_plan(plan, registry.root, dry_run=dry_run)
+    results = preview_results if dry_run else apply_generation_plan(plan, registry.root, dry_run=False)
 
     prefix = "[DRY-RUN] " if dry_run else ""
     print(f"{prefix}Executed command: {command.name}")
@@ -344,6 +369,17 @@ def _run_new(args: argparse.Namespace) -> int:
         else:
             print(f"{prefix}  + CREATE {rel}")
 
+    for planned_action in planned_actions:
+        cwd = ""
+        if planned_action.cwd is not None:
+            try:
+                cwd_value = planned_action.cwd.relative_to(registry.root)
+            except ValueError:
+                cwd_value = planned_action.cwd
+            cwd = f" (cwd={cwd_value})"
+        print(f"{prefix}  > ACTION [{command.actions[planned_action.index].phase}] {planned_action.command_display}{cwd}")
+
+    execute_actions(planned_actions, dry_run=dry_run)
     return 0
 
 

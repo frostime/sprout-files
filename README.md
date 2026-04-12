@@ -9,10 +9,11 @@
 - 默认 authoring 格式：YAML（便于注释、示例和值说明）
 - 输入模式：支持 `key=value`、`--json`、`--json-file`；TTY 下缺参可引导进入交互
 - 基础类型：`string` / `number` / `enum`（`number` 支持可选 `min/max`）
-- 插值语法：`{{name}}`（仅纯文本替换，不支持逻辑流）
+- 插值语法：支持输入变量、时间变量、`assets.<ref>.<suffix>`、`rand.str[:N]` / `rand.num[:N]`（仅纯文本替换，不支持逻辑流）
+- 可选 post-action：生成完成后执行 `run: [...]` 或 `shell: "..."`
 - 冲突策略：`fail` / `overwrite` / `skip` / `rename`
 - `init` 支持自定义骨架、可选示例命令包，并生成项目内 `sprout-authoring` Skill 文档
-- 运行时兼容 `yaml` / `yml` / `toml` / `json` 配置与 manifest
+- 运行时兼容 `yaml` / `yml` / `json` 配置与 manifest
 
 ## 快速开始
 
@@ -50,7 +51,7 @@ sprout new issue name=test type=feat --dry-run
 sprout init [--profile minimal|docs] [--profile-file ./profile.json] [--with-examples]
 sprout list [--all]
 sprout doctor
-sprout new <command> [key=value ...] [--json '{...}' | --json-file ./inputs.json] [--set key=value] [-i|--interactive] [--no-input] [--conflict fail|overwrite|skip|rename]
+sprout new <command> [key=value ...] [--json '{...}' | --json-file ./inputs.json] [--set key=value] [-i|--interactive] [--no-input] [-n|--dry-run] [--conflict fail|overwrite|skip|rename]
 ```
 
 ## `.sprout/` 结构
@@ -118,10 +119,17 @@ inputs:
 assets:
   - type: dir
     path: issues
+    ref: issues_dir
 
   - type: file
-    path: issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md
+    path: "{{assets.issues_dir.rel_path}}/{{YY}}-{{MM}}-{{DD}}_{{name}}-{{rand.str:6}}.md"
     template: issue.md
+    ref: issue_file
+
+actions:
+  - phase: post
+    run: ["git", "status"]
+    cwd: "{{project.root}}"
 ```
 
 ### 字段说明
@@ -140,6 +148,14 @@ assets:
 - `path`：项目内相对路径
 - `template`：文件资产引用的模板文件，路径相对当前命令目录
 - `content`：简单文件可直接内联内容；与 `template` 二选一即可
+- `ref`：可选资源引用名，供后续 asset 或 action 使用；同一命令内必须唯一
+
+#### `actions[*]`
+- `phase`：当前仅支持 `post`
+- `run`：推荐写法，参数数组形式执行命令
+- `shell`：便捷写法，执行单条 shell 命令
+- `cwd`：可选工作目录；支持模板插值，且必须仍在项目根目录内
+- `run` / `shell` 必须二选一
 
 ## 变量上下文
 
@@ -148,6 +164,30 @@ assets:
 - `YYYY`, `YY`, `MM`, `DD`
 - `hh`, `mm`, `ss`
 - `date`, `time`, `datetime`, `timestamp`
+
+还支持：
+
+- `project.root`：项目根目录绝对路径
+- `project.root_name`：项目根目录名
+- `rand.str` / `rand.str:N`：随机字母数字串，默认长度 `8`
+- `rand.num` / `rand.num:N`：随机数字串，默认长度 `8`
+
+### Asset 引用变量
+
+当 asset 定义了 `ref` 后，可在后续 asset 与 actions 中使用：
+
+- `assets.<ref>.abs_path`
+- `assets.<ref>.rel_path`
+- `assets.<ref>.name`
+- `assets.<ref>.parent_abs`
+- `assets.<ref>.parent_rel`
+
+规则：
+
+- 在 `assets[*].path` 中，只允许引用**前面**已定义的 `ref`
+- 在 `assets[*].path` 中，必须显式写后缀，推荐 `{{assets.<ref>.rel_path}}`
+- 在 `actions[*]` 中，允许直接写 `{{assets.<ref>}}`，默认等价于 `{{assets.<ref>.abs_path}}`
+- 所有路径变量字符串统一使用 `/` 分隔符
 
 ## 冲突策略说明
 
@@ -181,6 +221,18 @@ sprout new issue name=another type=feat
 #   Hint: Use --conflict=skip or --conflict=overwrite
 ```
 
+## Action 输出示例
+
+```bash
+sprout new issue name=test --dry-run
+# 输出：
+# [DRY-RUN] Executed command: issue
+# [DRY-RUN] Conflict policy: fail
+# [DRY-RUN]   + CREATE issues
+# [DRY-RUN]   + CREATE issues/26-04-12_test-a1B2c3.md
+# [DRY-RUN]   > ACTION [post] git status (cwd=.)
+```
+
 ## 交互与 Agent 调用建议
 
 - **TTY 下缺参**：sprout 会先说明缺了哪些字段，再询问是否进入交互模式
@@ -207,4 +259,4 @@ sprout new issue name=another type=feat
 
 - **找不到项目模板根**：确认当前目录或父目录存在 `.sprout/`
 - **命令不可用**：执行 `sprout doctor` 检查 invalid/conflict 报告
-- **YAML 无法读取**：安装 `PyYAML`，或继续使用 TOML / JSON
+- **YAML 无法读取**：安装 `PyYAML`，或改用 JSON

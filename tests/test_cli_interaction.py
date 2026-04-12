@@ -122,6 +122,44 @@ class CliInteractionTests(unittest.TestCase):
             self.assertIn('Interactive summary', stdout.getvalue())
             self.assertTrue((root / 'issues' / 'task-from-prompt.md').exists())
 
+    def test_dry_run_previews_actions_without_executing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            command_dir = root / '.sprout' / 'commands' / 'issue'
+            marker = root / 'marker.txt'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'issue',
+                        'description': 'Create an issue document',
+                        'inputs': [{'name': 'name', 'type': 'string', 'description': 'Issue slug'}],
+                        'assets': [
+                            {'type': 'dir', 'path': 'issues/{{name}}', 'ref': 'issue_dir'},
+                        ],
+                        'actions': [
+                            {
+                                'phase': 'post',
+                                'run': ['python', '-c', f"from pathlib import Path; Path(r'{marker.as_posix()}').write_text('x', encoding='utf-8')"],
+                                'cwd': '{{assets.issue_dir}}',
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with patch('pathlib.Path.cwd', return_value=root):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(['new', 'issue', 'name=test', '--dry-run'])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn('> ACTION [post]', stdout.getvalue())
+            self.assertFalse(marker.exists())
+
     def test_interactive_cancel_stops_without_writing_files(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

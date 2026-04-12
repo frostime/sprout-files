@@ -8,6 +8,7 @@ from typing import Any, Literal
 ConflictPolicy = Literal["fail", "overwrite", "skip", "rename"]
 InputType = Literal["string", "number", "enum"]
 AssetType = Literal["file", "dir"]
+ActionPhase = Literal["post"]
 
 
 class SproutError(Exception):
@@ -48,6 +49,16 @@ class AssetSpec:
     path: str
     template: str | None = None
     content: str | None = None
+    ref: str | None = None
+
+
+@dataclass(slots=True)
+class ActionSpec:
+    phase: ActionPhase = 'post'
+    run: list[str] | None = None
+    shell: str | None = None
+    cwd: str | None = None
+    description: str = ''
 
 
 @dataclass(slots=True)
@@ -58,6 +69,7 @@ class CommandSpec:
     manifest_path: Path
     inputs: list[InputSpec]
     assets: list[AssetSpec]
+    actions: list[ActionSpec] = field(default_factory=list)
     conflict: ConflictPolicy | None = None
 
 
@@ -89,7 +101,8 @@ class GeneratedItem:
     asset_type: AssetType
     requested_path: str
     final_path: Path
-    action: Literal["create", "overwrite", "skip", "rename", "reuse"]
+    action: Literal['create', 'overwrite', 'skip', 'rename', 'reuse']
+    ref: str | None = None
 
 
 @dataclass(slots=True)
