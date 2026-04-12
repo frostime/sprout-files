@@ -28,8 +28,18 @@ from .models import DiscoveryError, GenerationError, UserAbortError, ValidationE
 from .scaffold import initialize_workspace
 
 
+def _user_guide_path() -> Path:
+    return Path(__file__).parent / 'docs' / 'user-guide.md'
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="sprout", description="Template-driven project generator")
+    guide = _user_guide_path()
+    parser = argparse.ArgumentParser(
+        prog="sprout",
+        description="Template-driven project generator",
+        epilog=f"User guide: {guide}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--version", action="version", version=f"sprout {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)

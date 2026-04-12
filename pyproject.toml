@@ -1,6 +1,6 @@
 [project]
 name = "sprout-files"
-version = "0.3.0"
+version = "0.4.0"
 description = "Template-driven file and directory generator for project workflows"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,6 +31,7 @@ sprout = "sprout.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sprout"]
+artifacts = ["sprout/docs/*.md"]
 
 [tool.ruff]
 line-length = 100
