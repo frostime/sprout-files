@@ -1,6 +1,6 @@
 # Memory: do-action
 
-**Updated**: <!-- ISO timestamp, minute precision -->
+**Updated**: 2026-04-12T16:22+08:00
 
 ## Git Baseline (Immutable)
 <!-- Captured during `sspec change new` before any change files are written.
@@ -20,8 +20,8 @@ This section records the change starting point in git and MUST NOT be edited or 
 ```
 
 ## State
-- 当前处于 Review gate：实现、测试、文档与 runtime 验证已完成，等待用户评审结果。
-- 下一步：根据用户反馈进入接受 / 小修 / 修订分支。
+- 用户已接受本 change，状态可收束为 DONE 并归档。
+- 下一步：提交剩余收尾改动并执行 `sspec change archive`。
 
 ## Key Files
 - `.sspec/requests/26-04-12T14-53_do-action.md` — 原始需求，提出 action、asset 引用与模板 shell 的讨论点。
@@ -42,6 +42,7 @@ This section records the change starting point in git and MUST NOT be edited or 
 - [2026-04-12T15:25+08:00] [Decision] 用户要求把随机内置变量纳入本次变更，并采用命名空间语法 `rand.str` / `rand.num`。
 - [2026-04-12T15:51+08:00] [Decision] Review revision 001：按用户要求移除 TOML 支持，项目运行时格式收缩为 YAML/YML/JSON。
 - [2026-04-12T16:05+08:00] [Decision] Review revision 002：action 启动失败（缺失 executable、非法 cwd 等）必须统一包装为 `GenerationError`，不得向用户暴露原始 traceback。
+- [2026-04-12T16:20+08:00] [Decision] Review revision 003：TOML 移除必须在发现层与加载层同时收口，README 命令总览需显式列出 `--dry-run`。
 
 ## Milestones
 - [2026-04-12T15:08+08:00] 已创建 change `26-04-12T15-03_do-action`，完成首轮 clarify + design 草案并等待用户 gate 确认
@@ -49,3 +50,5 @@ This section records the change starting point in git and MUST NOT be edited or 
 - [2026-04-12T15:43+08:00] 已完成实现与验证：26 个单测通过，并在 `temp/runtime-action-test` 中完成 `sprout doctor` + `sprout new` 运行时验证
 - [2026-04-12T15:51+08:00] 已完成 revision 001：删除 TOML 支持，测试全绿，并在 `temp/runtime-action-test-no-toml` 中完成无 TOML runtime 验证
 - [2026-04-12T16:05+08:00] 已完成 revision 002：29 个单测通过，补齐 action 启动失败错误边界与 rename+ref 回归测试
+- [2026-04-12T16:20+08:00] 已完成 revision 003：删除最终 TOML 解析残留，补齐 `--dry-run` 文档，并保持 29 个单测全绿
+- [2026-04-12T16:22+08:00] 用户确认结束并允许归档；change 状态转为 DONE

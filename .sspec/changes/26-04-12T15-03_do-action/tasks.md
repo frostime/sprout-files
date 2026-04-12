@@ -28,6 +28,7 @@ updated: ""
 - [x] Remove TOML runtime support per `revisions/001-drop-toml-support.md` in `sprout/core.py` and `pyproject.toml`
 - [x] Update tests/docs/project memory to reflect YAML/YML/JSON-only support in `tests/test_core.py`, `README.md`, `.sspec/project.md`
 - [x] Fix action launch error handling and cleanup leftovers per `revisions/002-action-error-handling-and-cleanup.md` in `sprout/core.py`, `README.md`, `tests/test_actions.py`
+- [x] Finalize TOML cleanup and dry-run docs polish per `revisions/003-final-toml-cleanup-and-docs-polish.md` in `sprout/core.py` and `README.md`
 **Verification**: `uv run python -m unittest tests.test_core tests.test_generation_policies tests.test_cli_interaction tests.test_actions`
 
 ---
@@ -49,3 +50,5 @@ updated: ""
 - [x] Applied revision 001 to drop TOML support and re-validated runtime in temp/runtime-action-test-no-toml
 - [x] Created revision 002 for post-action error handling and cleanup based on independent subagent review
 - [x] Wrapped action launch failures as `GenerationError`, fixed remaining README wording, and added regression tests for launch errors + rename-based ref semantics
+- [x] Created revision 003 for final TOML cleanup and dry-run docs polish after baseline→HEAD review
+- [x] Removed final TOML parsing residue, documented `--dry-run` in command synopsis, and re-ran full targeted test suite

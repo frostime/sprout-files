@@ -51,7 +51,7 @@ sprout new issue name=test type=feat --dry-run
 sprout init [--profile minimal|docs] [--profile-file ./profile.json] [--with-examples]
 sprout list [--all]
 sprout doctor
-sprout new <command> [key=value ...] [--json '{...}' | --json-file ./inputs.json] [--set key=value] [-i|--interactive] [--no-input] [--conflict fail|overwrite|skip|rename]
+sprout new <command> [key=value ...] [--json '{...}' | --json-file ./inputs.json] [--set key=value] [-i|--interactive] [--no-input] [-n|--dry-run] [--conflict fail|overwrite|skip|rename]
 ```
 
 ## `.sprout/` 结构

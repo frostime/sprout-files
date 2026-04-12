@@ -113,17 +113,6 @@ def _load_mapping_file(path: Path) -> dict[str, Any]:
 
     if suffix == '.json':
         data = json.loads(path.read_text(encoding='utf-8'))
-    elif suffix == '.toml':
-        try:
-            import tomllib  # type: ignore[attr-defined]
-        except ModuleNotFoundError:
-            try:
-                import tomli as tomllib  # type: ignore[no-redef]
-            except ModuleNotFoundError as exc:
-                raise ValidationError(
-                    f"{path}: TOML support requires Python 3.11+ or 'tomli' package"
-                ) from exc
-        data = tomllib.loads(path.read_text(encoding='utf-8'))
     elif suffix in {'.yaml', '.yml'}:
         try:
             import yaml  # type: ignore
