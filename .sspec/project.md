@@ -51,7 +51,7 @@ Examples: "snake_case for Python, camelCase for JS", "All API routes: /api/v1/*"
 Agent reads this to know what architecture knowledge exists before starting work.
 Keep entries in sync with actual spec-doc files. Format: `- [name](spec-docs/<file>) — one-line description` -->
 
-(none yet — create spec-docs with `sspec doc new "<name>"`)
+- [sprout-architecture](spec-docs/sprout-architecture.md) — Core runtime architecture: discovery, registry, template system, generation pipeline, conflict resolution
 
 ## Notes
 <!-- @RULE: Project-level memory. Append-only log of learnings, gotchas, preferences.
