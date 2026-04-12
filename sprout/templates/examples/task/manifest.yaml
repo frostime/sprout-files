@@ -18,7 +18,8 @@ inputs:
 assets:
   - type: dir
     path: tasks/{{YY}}-{{MM}}-{{DD}}_{{name}}
+    ref: task_dir
 
   - type: file
-    path: tasks/{{YY}}-{{MM}}-{{DD}}_{{name}}/task.md
+    path: "{{assets.task_dir.rel_path}}/task.md"
     template: task.md

@@ -78,10 +78,17 @@ inputs:
 assets:
   - type: dir
     path: issues
+    ref: issues_dir
 
   - type: file
-    path: issues/{{YY}}-{{MM}}-{{DD}}_{{name}}.md
+    path: "{{assets.issues_dir.rel_path}}/{{YY}}-{{MM}}-{{DD}}_{{name}}-{{rand.str:6}}.md"
     template: issue.md
+    ref: issue_file
+
+actions:
+  - phase: post
+    run: ["git", "status"]
+    cwd: "{{project.root}}"
 ```
 
 ## Field filling rules
@@ -100,14 +107,24 @@ assets:
 - `path`: required relative path inside the project
 - `template`: for file assets, path to template file inside the same command package
 - `content`: optional inline content for simple files
+- `ref`: optional stable name for later asset/action references
+
+### `actions[*]`
+- `phase`: currently only `post`
+- `run`: preferred argv form, e.g. `["git", "init"]`
+- `shell`: convenience shell string form
+- `cwd`: optional working directory template
+- exactly one of `run` / `shell`
 
 ## Rendering rules
 
-- Placeholders use `{{variable}}` only
-- Supported variables = user inputs + built-in time values:
-  `YYYY`, `YY`, `MM`, `DD`, `hh`, `mm`, `ss`, `date`, `time`, `datetime`, `timestamp`
+- Placeholders use `{{...}}` only
+- Supported variables = user inputs + built-in time values + project vars + asset refs + random tokens
+- Asset path templates may reference only earlier asset refs, and should use explicit suffixes such as `{{assets.root_dir.rel_path}}`
+- Action templates may use bare `{{assets.root_dir}}`, which means absolute path
+- Random tokens: `{{rand.str}}`, `{{rand.str:10}}`, `{{rand.num}}`, `{{rand.num:6}}`
 - No `if`, `for`, function calls, or nested logic
-- Paths must stay inside the project root
+- Rendered paths must stay inside the project root and are normalized to `/` separators
 
 ## Authoring checklist
 
@@ -116,8 +133,10 @@ Before finishing, verify:
 - every input has a clear purpose
 - every file asset has either `template` or `content`
 - template files actually exist
-- paths only use `{{var}}` interpolation
+- any `ref` values are unique within the command
+- asset-to-asset references only point backward
 - conflict behavior is explicit somewhere (command or project level)
+- action commands use `run` unless shell syntax is truly more ergonomic
 
 ## Validation commands
 
@@ -128,6 +147,7 @@ sprout doctor
 sprout list --all
 sprout new <command> name=test
 sprout new <command> --json '{"name":"test"}'
+sprout new <command> name=test --dry-run
 ```
 
 ## Runtime input guidance

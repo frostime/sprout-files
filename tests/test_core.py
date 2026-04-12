@@ -16,6 +16,7 @@ from sprout.core import (
     load_registry,
     merge_input_sources,
     parse_json_input,
+    validate_template_variables,
 )
 from sprout.models import UserAbortError, ValidationError
 
@@ -49,7 +50,7 @@ def _manifest(name: str, *, number_with_bounds: bool = False) -> str:
 
 
 class CoreTests(unittest.TestCase):
-    def test_project_config_prefers_yaml_and_keeps_legacy_formats(self) -> None:
+    def test_project_config_prefers_yaml_then_json_and_ignores_toml(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             commands = root / ".sprout" / "commands"
@@ -72,7 +73,7 @@ class CoreTests(unittest.TestCase):
             _write(root / ".sprout" / "config.toml", 'conflict = "overwrite"\n')
 
             registry = load_registry(root)
-            self.assertEqual(registry.config.conflict, "overwrite")
+            self.assertEqual(registry.config.conflict, "fail")
 
     def test_invalid_yaml_project_config_reports_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -204,6 +205,32 @@ class CoreTests(unittest.TestCase):
                     interactive=True,
                     prompt=lambda _: 'q',
                 )
+
+    def test_validate_template_variables_supports_actions_and_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            command_dir = root / '.sprout' / 'commands' / 'demo'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'demo',
+                        'inputs': [{'name': 'name', 'type': 'string'}],
+                        'assets': [
+                            {'type': 'dir', 'path': 'projects/{{name}}', 'ref': 'project_dir'},
+                            {'type': 'file', 'path': '{{assets.project_dir.rel_path}}/README.md', 'content': 'x'},
+                        ],
+                        'actions': [
+                            {'phase': 'post', 'shell': 'echo {{assets.project_dir}}', 'cwd': '{{assets.project_dir}}'},
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+            command = load_command_spec(command_dir)
+            issues = validate_template_variables(command)
+            self.assertEqual(issues, [])
 
 
 if __name__ == "__main__":

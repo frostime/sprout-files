@@ -12,7 +12,7 @@ Read it first every session. Update Conventions + Notes via @memory. -->
 - CLI framework: argparse
 - Build system: hatchling
 - Package manager: uv
-- Config formats: YAML (primary), TOML, JSON (runtime compatible)
+- Config formats: YAML (primary), JSON (runtime compatible)
 
 ## Key Paths
 <!-- @RULE: Most important directories/files for quick navigation.
