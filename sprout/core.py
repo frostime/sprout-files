@@ -1217,12 +1217,17 @@ def execute_actions(actions: list[PlannedAction], *, dry_run: bool = False) -> N
         if dry_run:
             continue
 
-        if action.mode == 'argv':
-            assert action.argv is not None
-            completed = subprocess.run(action.argv, cwd=action.cwd, check=False)
-        else:
-            assert action.shell_command is not None
-            completed = subprocess.run(action.shell_command, cwd=action.cwd, shell=True, check=False)
+        try:
+            if action.mode == 'argv':
+                assert action.argv is not None
+                completed = subprocess.run(action.argv, cwd=action.cwd, check=False)
+            else:
+                assert action.shell_command is not None
+                completed = subprocess.run(action.shell_command, cwd=action.cwd, shell=True, check=False)
+        except OSError as exc:
+            raise GenerationError(
+                f'Action #{action.index + 1} could not start: {action.command_display} ({exc})'
+            ) from exc
 
         if completed.returncode != 0:
             raise GenerationError(

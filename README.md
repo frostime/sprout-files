@@ -259,4 +259,4 @@ sprout new issue name=test --dry-run
 
 - **找不到项目模板根**：确认当前目录或父目录存在 `.sprout/`
 - **命令不可用**：执行 `sprout doctor` 检查 invalid/conflict 报告
-- **YAML 无法读取**：安装 `PyYAML`，或继续使用 TOML / JSON
+- **YAML 无法读取**：安装 `PyYAML`，或改用 JSON
