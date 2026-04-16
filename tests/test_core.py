@@ -9,17 +9,20 @@ from sprout.core import (
     build_prompt_info,
     build_variable_context,
     collect_inputs,
+    discover_global_dir,
     discover_project_root,
     find_missing_required_inputs,
     iter_command_package_dirs,
+    iter_global_command_package_dirs,
     load_command_spec,
+    load_global_registry,
     load_json_input_file,
     load_registry,
     merge_input_sources,
     parse_json_input,
     validate_template_variables,
 )
-from sprout.models import UserAbortError, ValidationError
+from sprout.models import DiscoveryError, UserAbortError, ValidationError
 
 
 def _write(path: Path, content: str) -> None:
@@ -252,5 +255,163 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(issues, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
+class GlobalModeTests(unittest.TestCase):
+    def test_discover_global_dir_raises_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            import sprout.core as core
+            original = core.GLOBAL_SPROUT_DIR
+            core.GLOBAL_SPROUT_DIR = Path(td) / 'nonexistent'
+            try:
+                with self.assertRaises(DiscoveryError):
+                    discover_global_dir()
+            finally:
+                core.GLOBAL_SPROUT_DIR = original
+
+    def test_discover_global_dir_succeeds_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            import sprout.core as core
+            original = core.GLOBAL_SPROUT_DIR
+            global_dir = Path(td) / 'sprout'
+            global_dir.mkdir()
+            (global_dir / '__new__').mkdir()
+            core.GLOBAL_SPROUT_DIR = global_dir
+            try:
+                result = discover_global_dir()
+                self.assertEqual(result, global_dir)
+            finally:
+                core.GLOBAL_SPROUT_DIR = original
+
+    def test_iter_global_command_package_dirs_only_scans_new(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            global_dir = Path(td) / 'sprout'
+            new_dir = global_dir / '__new__'
+            new_dir.mkdir(parents=True)
+
+            # Only __new__/ should be scanned, not commands/
+            cmd_dir = new_dir / 'mycmd'
+            cmd_dir.mkdir()
+            _write(cmd_dir / 'manifest.json', _manifest('mycmd'))
+
+            result = iter_global_command_package_dirs(global_dir)
+            self.assertEqual([p.name for p in result], ['mycmd'])
+
+    def test_load_global_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            import sprout.core as core
+            original = core.GLOBAL_SPROUT_DIR
+            global_dir = Path(td) / 'sprout'
+            new_dir = global_dir / '__new__'
+            cmd = new_dir / 'greeter'
+            cmd.mkdir(parents=True)
+            _write(cmd / 'manifest.json', _manifest('greeter'))
+            _write(cmd / 'template.md', '# {{name}}')
+            _write(global_dir / 'config.yaml', 'conflict: skip\n')
+            core.GLOBAL_SPROUT_DIR = global_dir
+            try:
+                registry = load_global_registry()
+                self.assertTrue(registry.is_global)
+                self.assertIn('greeter', registry.commands)
+                self.assertEqual(registry.config.conflict, 'skip')
+            finally:
+                core.GLOBAL_SPROUT_DIR = original
+
+    def test_build_variable_context_global_mode(self) -> None:
+        context = build_variable_context({'name': 'test'}, mode='global')
+        self.assertIn('home', context)
+        self.assertIn('cwd', context)
+        self.assertIn('platform', context)
+        self.assertNotIn('project.root', context)
+        self.assertNotIn('project.root_name', context)
+
+    def test_build_variable_context_project_mode_no_project_root(self) -> None:
+        context = build_variable_context({'name': 'test'}, mode='project')
+        self.assertNotIn('home', context)
+        self.assertNotIn('cwd', context)
+        self.assertNotIn('project.root', context)
+
+    def test_build_variable_context_project_mode_with_project_root(self) -> None:
+        project_root = Path('/tmp/myproject')
+        context = build_variable_context({'name': 'test'}, mode='project', project_root=project_root)
+        self.assertIn('project.root', context)
+        self.assertIn('project.root_name', context)
+        self.assertEqual(context['project.root_name'], 'myproject')
+        self.assertNotIn('home', context)
+
+    def test_command_spec_root_field(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            command_dir = Path(td) / 'cmd'
+            command_dir.mkdir()
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps({
+                    'name': 'temp',
+                    'root': '{{home}}/temp',
+                    'inputs': [{'name': 'name', 'type': 'string'}],
+                    'assets': [{'type': 'dir', 'path': '{{name}}'}],
+                }),
+            )
+            command = load_command_spec(command_dir)
+            self.assertEqual(command.root, '{{home}}/temp')
+
+    def test_command_spec_no_root(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            command_dir = Path(td) / 'cmd'
+            command_dir.mkdir()
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps({
+                    'name': 'issue',
+                    'inputs': [{'name': 'name', 'type': 'string'}],
+                    'assets': [{'type': 'dir', 'path': 'issues'}],
+                }),
+            )
+            command = load_command_spec(command_dir)
+            self.assertIsNone(command.root)
+
+    def test_validate_template_variables_global_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            command_dir = Path(td) / 'cmd'
+            command_dir.mkdir()
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps({
+                    'name': 'temp',
+                    'root': '{{home}}/temp',
+                    'inputs': [{'name': 'name', 'type': 'string'}],
+                    'assets': [{'type': 'dir', 'path': '{{name}}'}],
+                }),
+            )
+            command = load_command_spec(command_dir)
+            # Global mode: home/cwd/platform are valid in asset path
+            issues = validate_template_variables(command, is_global=True)
+            self.assertEqual(issues, [])
+
+            # Global mode: project.* should not be available
+            proj_cmd_dir = Path(td) / 'cmd2'
+            proj_cmd_dir.mkdir()
+            _write(
+                proj_cmd_dir / 'manifest.json',
+                json.dumps({
+                    'name': 'proj',
+                    'inputs': [],
+                    'assets': [{'type': 'dir', 'path': '{{project.root}}/stuff'}],
+                }),
+            )
+            proj_command = load_command_spec(proj_cmd_dir)
+            issues_bad = validate_template_variables(proj_command, is_global=True)
+            self.assertGreater(len(issues_bad), 0)
+
+            # Project mode: home/cwd/platform should be flagged
+            home_cmd_dir = Path(td) / 'cmd3'
+            home_cmd_dir.mkdir()
+            _write(
+                home_cmd_dir / 'manifest.json',
+                json.dumps({
+                    'name': 'homecmd',
+                    'inputs': [],
+                    'assets': [{'type': 'dir', 'path': '{{home}}/mystuff'}],
+                }),
+            )
+            home_command = load_command_spec(home_cmd_dir)
+            home_issues = validate_template_variables(home_command, is_global=False)
+            self.assertGreater(len(home_issues), 0)

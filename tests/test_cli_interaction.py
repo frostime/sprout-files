@@ -246,6 +246,84 @@ class CliInteractionTests(unittest.TestCase):
             self.assertIn('Cancelled. No files were created.', stderr.getvalue())
             self.assertFalse((root / 'issues').exists())
 
+    def test_init_global_creates_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            global_dir = Path(td) / 'sprout'
+            with patch('sprout.core.GLOBAL_SPROUT_DIR', global_dir), \
+                 patch('sprout.scaffold.GLOBAL_SPROUT_DIR', global_dir):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(['init', '--global'])
+
+                self.assertEqual(exit_code, 0)
+                self.assertTrue((global_dir / '__new__').is_dir())
+                self.assertTrue((global_dir / 'config.yaml').exists())
+                self.assertIn('Global', stdout.getvalue())
+
+    def test_list_global_shows_global_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            global_dir = Path(td) / 'sprout'
+            cmd_dir = global_dir / '__new__' / 'mycmd'
+            cmd_dir.mkdir(parents=True)
+            _write(
+                cmd_dir / 'manifest.json',
+                json.dumps({'name': 'mycmd', 'assets': [{'type': 'dir', 'path': 'out'}]}, ensure_ascii=False, indent=2),
+            )
+            _write(global_dir / 'config.yaml', 'conflict: fail\n')
+            with patch('sprout.core.GLOBAL_SPROUT_DIR', global_dir):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(['list', '-g'])
+
+                self.assertEqual(exit_code, 0)
+                self.assertIn('mycmd', stdout.getvalue())
+                self.assertIn('Global directory', stdout.getvalue())
+
+    def test_new_global_generates_files(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            global_dir = Path(td) / 'sprout'
+            cmd_dir = global_dir / '__new__' / 'note'
+            cmd_dir.mkdir(parents=True)
+            _write(
+                cmd_dir / 'manifest.json',
+                json.dumps({
+                    'name': 'note',
+                    'inputs': [{'name': 'title', 'type': 'string'}],
+                    'assets': [{'type': 'file', 'path': '{{title}}.txt', 'content': '{{title}}'}],
+                }, ensure_ascii=False, indent=2),
+            )
+            _write(global_dir / 'config.yaml', 'conflict: skip\n')
+            output_dir = Path(td) / 'output'
+            output_dir.mkdir()
+            with patch('sprout.core.GLOBAL_SPROUT_DIR', global_dir):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with patch('pathlib.Path.cwd', return_value=output_dir):
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        exit_code = main(['new', '-g', 'note', 'title=hello'])
+
+                self.assertEqual(exit_code, 0)
+                self.assertTrue((output_dir / 'hello.txt').exists())
+                self.assertIn('hello', (output_dir / 'hello.txt').read_text(encoding='utf-8'))
+
+    def test_doctor_global_checks_global_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            global_dir = Path(td) / 'sprout'
+            global_dir.mkdir()
+            (global_dir / '__new__').mkdir()
+            _write(global_dir / 'config.yaml', 'conflict: fail\n')
+            with patch('sprout.core.GLOBAL_SPROUT_DIR', global_dir):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(['doctor', '-g'])
+
+                self.assertEqual(exit_code, 0)
+                self.assertIn('Global directory', stdout.getvalue())
+                self.assertIn('OK', stdout.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

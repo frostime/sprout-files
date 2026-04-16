@@ -87,6 +87,27 @@ Command packages 从两个目录加载，按优先级排序：
 - 两者都存在 → 将 `commands/` 中不冲突的子目录 `rename` 到 `__new__/`，尝试 `rmdir` 清理空目录
 - 迁移仅在 **写入路径**（`init` / `builtin`）触发，纯读取（`list` / `new` / `doctor`）不迁移
 
+### 2b. Global Mode Discovery (`core.py`)
+
+全局模式通过 `-g`/`--global` CLI 标志激活，使用独立的注册表和发现机制。
+
+```python
+GLOBAL_SPROUT_DIR = Path.home() / '.config' / 'sprout'
+
+def discover_global_dir() -> Path:
+    # 直接检查固定路径，不做向上搜索
+
+def iter_global_command_package_dirs(global_dir: Path) -> list[Path]:
+    # 只扫描 __new__/，不兼容 commands/ 旧目录
+```
+
+**关键差异**：
+- 全局发现不做向上搜索，直接读固定路径
+- 全局目录只扫描 `__new__/`，无 `commands/` 兼容
+- `sprout init --global` 创建全局目录结构
+
+**两套注册表完全隔离**：项目级和全局级不共存、不合并、无优先级逻辑。CLI 标志决定走哪条路径。
+
 ### 3. Registry (`core.py` + `models.py`)
 
 ```python
@@ -133,6 +154,7 @@ class CommandSpec:
     assets: list[AssetSpec]          # 输出资产定义
     actions: list[ActionSpec]        # 生成后动作
     conflict: ConflictPolicy | None  # 命令级冲突策略（可选）
+    root: str | None                 # 全局模式生成基座（模板字符串）
 ```
 
 **InputSpec 类型系统**：
@@ -174,7 +196,8 @@ class CommandSpec:
 |------|------|------|
 | **用户输入** | `{{name}}`, `{{type}}` 等 | manifest `inputs` 定义 |
 | **日期时间** | `YYYY` `YY` `MM` `DD` `hh` `mm` `ss` `date` `time` `datetime` `timestamp` | `build_variable_context()` 快照 |
-| **项目变量** | `project.root` (posix 绝对路径), `project.root_name` (目录名) | `_build_project_context()` |
+| **项目变量** | `project.root` (posix 绝对路径), `project.root_name` (目录名) | `_build_project_context()` | **项目模式** |
+| **全局变量** | `home` (posix 绝对路径), `cwd` (posix 绝对路径), `platform` (`win32`/`darwin`/`linux`) | `_build_global_context()` | **全局模式** |
 | **Asset 引用** | `assets.<ref>.<suffix>` | 前序 asset 的 `ref` 字段 |
 | **随机令牌** | `rand.str[:N]`, `rand.num[:N]` | 每次求值生成新值 |
 
@@ -193,8 +216,8 @@ class CommandSpec:
 | 作用域 | 可用变量 | 使用位置 |
 |--------|----------|----------|
 | `base` | 用户输入 + 内置时间 | — (目前未直接使用) |
-| `asset` | base + `project.*` + `assets.<ref>.<suffix>` (仅前序, 不含 bare ref) | `assets[*].path`, `assets[*].template` 内容 |
-| `action` | base + `project.*` + `assets.<ref>` (含 bare ref = abs_path) | `actions[*].run`, `actions[*].shell`, `actions[*].cwd` |
+| `asset` | base + `project.*` **或** `home`/`cwd`/`platform` + `assets.<ref>.<suffix>` (仅前序, 不含 bare ref) | `assets[*].path`, `assets[*].template` 内容 |
+| `action` | base + `project.*` **或** `home`/`cwd`/`platform` + `assets.<ref>` (含 bare ref = abs_path) | `actions[*].run`, `actions[*].shell`, `actions[*].cwd` |
 
 **关键约束**：
 - Asset 路径模板只能引用 **声明顺序在前面** 的 asset ref（禁止前向引用）
@@ -332,6 +355,11 @@ CLI 层统一捕获这四种异常，打印消息后返回 exit code 1。
 | YAML 可选依赖 | 缺少时给安装提示 | 保持核心零额外依赖 |
 | Asset 排序 | dir 先于 file | 确保父目录在文件写入前存在 |
 | 随机令牌 | `secrets` 模块 | 安全随机，适用于需要唯一性的场景 |
+| 全局/项目隔离 | 两套注册表完全隔离，`-g` 切换 | 零合并逻辑、零优先级冲突、项目级代码零侵入 |
+| 全局路径 | 允许绝对路径，`root` 字段声明基座 | 用户需求核心：自由在系统任意位置创建文件 |
+| 全局目录 | `~/.config/sprout/` | XDG 惯例，结构镜像项目级但不带 `commands/` 旧目录 |
+| 全局变量 | `home`/`cwd`/`platform` | 项目模式用 `project.*`，全局模式用独立变量集 |
+| 全局沙箱 | 绝对路径跳过沙箱，相对路径用 `root` 或 cwd | 保留底线安全，不阻止用户意图 |
 
 ---
 

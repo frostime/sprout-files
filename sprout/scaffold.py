@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .core import authoring_directories
+from .core import GLOBAL_SPROUT_DIR, PREFERRED_COMMANDS_DIRNAME, authoring_directories
 from .models import InitReport, ValidationError
 
 
@@ -181,6 +181,26 @@ def _copy_example_command(commands_dir: Path, example_name: str, report: InitRep
 def _add_example_commands(commands_dir: Path, report: InitReport) -> None:
     _copy_example_command(commands_dir, "issue", report)
     _copy_example_command(commands_dir, "task", report)
+
+
+def initialize_global_workspace(*, target_dir: Path | None = None) -> InitReport:
+    report = InitReport()
+
+    global_dir = target_dir or GLOBAL_SPROUT_DIR
+
+    _mkdir(global_dir, report)
+    commands_dir = global_dir / PREFERRED_COMMANDS_DIRNAME
+    _mkdir(commands_dir, report)
+
+    # Write config.yaml from template
+    config_content = _load_template_file("config.yaml")
+    _write_if_missing(global_dir / "config.yaml", config_content, report)
+
+    report.notes.append('Global mode: manifest root field supports {{home}}, {{cwd}}, {{platform}} template variables.')
+    report.notes.append('Global commands are stored in ~/.config/sprout/__new__/*/ and are not project-specific.')
+    report.notes.append('Available via: sprout new -g <command>')
+
+    return report
 
 
 def initialize_workspace(

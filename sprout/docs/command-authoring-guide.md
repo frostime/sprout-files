@@ -137,7 +137,7 @@ actions:
 ### `assets[*]`
 
 - `type`: `dir` or `file`
-- `path`: required relative path inside the project
+- `path`: relative path inside the project (project mode) or any path (global mode)
 - `template`: for file assets, path to template file inside the same command package
 - `content`: optional inline content for simple files
 - `ref`: optional stable name for later asset/action references
@@ -150,17 +150,26 @@ actions:
 - `cwd`: optional working directory template
 - exactly one of `run` / `shell`
 
+### `root` (global mode only)
+
+- Optional field declaring the base directory for relative asset paths
+- Supports template variables: `root: "{{home}}/temp"`
+- If omitted, relative asset paths resolve from the current working directory
+- Only meaningful in global mode; ignored in project mode
+
 ---
 
 ## Rendering rules
 
 - Placeholders use `{{...}}` only
-- Supported variables = user inputs + built-in time values + project vars + asset refs + random tokens
+- Project mode variables = user inputs + built-in time values + `project.root` / `project.root_name` + asset refs + random tokens
+- Global mode variables = user inputs + built-in time values + `home` / `cwd` / `platform` + asset refs + random tokens
 - Asset path templates may reference only earlier asset refs, and should use explicit suffixes such as `{{assets.root_dir.rel_path}}`
 - Action templates may use bare `{{assets.root_dir}}`, which means absolute path
 - Random tokens: `{{rand.str}}`, `{{rand.str:10}}`, `{{rand.num}}`, `{{rand.num:6}}`
 - No `if`, `for`, function calls, or nested logic
-- Rendered paths must stay inside the project root and are normalized to `/` separators
+- In **project mode**: rendered paths must stay inside the project root and are normalized to `/` separators
+- In **global mode**: rendered paths may be absolute; relative paths resolve from the `root` field or cwd
 
 ---
 
@@ -209,3 +218,22 @@ sprout new <command> name=test --dry-run
 - Preferred authoring directory: `.sprout/__new__/`
 - Legacy directory still read at runtime: `.sprout/commands/`
 - When sprout writes new built-in scaffolds or initializes a workspace, it prefers `__new__/` and migrates safe legacy subdirectories automatically
+
+## Global mode
+
+Global commands live in `~/.config/sprout/__new__/` and are available everywhere, not tied to any project. Create the global directory with:
+
+```bash
+sprout init --global
+```
+
+Global manifests support the same fields as project manifests, plus:
+
+- **`root`** — optional base directory for relative asset paths (supports template variables)
+- No `commands/` legacy directory — global mode only reads `__new__/`
+
+Global mode provides `{{home}}`, `{{cwd}}`, and `{{platform}}` instead of `{{project.root}}` and `{{project.root_name}}`.
+
+Absolute paths are allowed in global mode — assets like `{{home}}/Downloads/note.md` work naturally.
+
+See the user guide (`sprout doc show user-guide`) for global mode examples.

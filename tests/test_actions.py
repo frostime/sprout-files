@@ -222,6 +222,70 @@ class ActionTests(unittest.TestCase):
             self.assertTrue((root / 'issues' / 'sample_02.md').exists())
             self.assertTrue((root / 'issues' / 'sample_02.md.bak').exists())
 
+    def test_global_action_context_supports_absolute_asset_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            command_dir = root / '.sprout' / 'commands' / 'demo'
+            outside = Path(td) / 'outside'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'demo',
+                        'assets': [
+                            {'type': 'file', 'path': str((outside / 'note.txt').resolve()), 'content': 'x', 'ref': 'note'},
+                        ],
+                        'actions': [
+                            {'phase': 'post', 'shell': 'echo {{assets.note}} {{assets.note.rel_path}} {{assets.note.parent_rel}}'},
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+            command = load_command_spec(command_dir)
+            values = build_variable_context({}, mode='global')
+            generated = apply_generation_plan(
+                build_generation_plan(command, root, values, 'fail', allow_absolute=True, mode='global'),
+                root,
+                dry_run=True,
+            )
+
+            planned_actions = plan_post_actions(
+                command,
+                root,
+                values,
+                generated,
+                allow_absolute=True,
+                mode='global',
+            )
+
+            self.assertIn((outside / 'note.txt').resolve().as_posix(), planned_actions[0].command_display)
+            self.assertIn((outside / 'note.txt').resolve().as_posix(), planned_actions[0].command_display)
+
+    def test_validate_template_variables_checks_global_root_field(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            command_dir = root / '.sprout' / 'commands' / 'demo'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'demo',
+                        'root': '{{project.root}}/tmp',
+                        'assets': [{'type': 'dir', 'path': 'x'}],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+            command = load_command_spec(command_dir)
+
+            issues = validate_template_variables(command, is_global=True)
+
+            self.assertTrue(any(issue.template_path == 'root' for issue in issues))
+            self.assertTrue(any('project.root' in issue.message for issue in issues))
+
 
 if __name__ == '__main__':
     unittest.main()

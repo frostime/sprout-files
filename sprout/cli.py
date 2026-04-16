@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 from . import __version__
 from .core import (
@@ -15,6 +15,7 @@ from .core import (
     effective_conflict_policy,
     execute_actions,
     find_missing_required_inputs,
+    load_global_registry,
     load_json_input_file,
     load_registry,
     merge_input_sources,
@@ -25,7 +26,7 @@ from .core import (
     validate_template_variables,
 )
 from .models import DiscoveryError, GenerationError, UserAbortError, ValidationError
-from .scaffold import create_builtin_command_template, initialize_workspace
+from .scaffold import create_builtin_command_template, initialize_global_workspace, initialize_workspace
 
 
 def _docs_dir() -> Path:
@@ -58,6 +59,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init", help="Initialize .sprout workspace")
     init_parser.add_argument(
+        "--global",
+        dest="global_mode",
+        action="store_true",
+        help="Initialize global sprout directory (~/.config/sprout/)",
+    )
+    init_parser.add_argument(
         "--profile",
         default="minimal",
         choices=["minimal", "docs"],
@@ -77,8 +84,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", help="List discovered commands")
     list_parser.add_argument("--all", action="store_true", help="Include invalid/conflicting commands")
+    list_parser.add_argument("-g", "--global", dest="global_mode", action="store_true", help="List global commands")
 
-    subparsers.add_parser("doctor", help="Validate command registry and report issues")
+    doctor_parser = subparsers.add_parser("doctor", help="Validate command registry and report issues")
+    doctor_parser.add_argument("-g", "--global", dest="global_mode", action="store_true", help="Check global registry")
 
     builtin_parser = subparsers.add_parser("builtin", help="Create a built-in command manifest template")
     builtin_parser.add_argument("name", help="Command package name")
@@ -97,6 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
     new_parser = subparsers.add_parser("new", help="Generate assets from a command package")
     new_parser.add_argument("command_name", help="Command name to execute")
     new_parser.add_argument("pairs", nargs="*", help="Input values as key=value")
+    new_parser.add_argument("-g", "--global", dest="global_mode", action="store_true", help="Use global sprout directory (~/.config/sprout/)")
     new_parser.add_argument(
         "--json",
         dest="json_input",
@@ -144,15 +154,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _print_registry(registry, include_all: bool) -> int:
+    root_label = "Global directory" if registry.is_global else "Project root"
     if registry.commands:
-        print(f"Project root: {registry.root}")
+        print(f"{root_label}: {registry.root}")
         print("Available commands:")
         for name in sorted(registry.commands):
             command = registry.commands[name]
             desc = f" - {command.description}" if command.description else ""
             print(f"  - {name}{desc}")
     else:
-        print(f"Project root: {registry.root}")
+        print(f"{root_label}: {registry.root}")
         print("No available commands found.")
 
     if include_all:
@@ -169,14 +180,17 @@ def _print_registry(registry, include_all: bool) -> int:
 
 
 def _run_init(args: argparse.Namespace) -> int:
-    report = initialize_workspace(
-        Path.cwd(),
-        profile=args.profile,
-        profile_file=args.profile_file,
-        with_examples=bool(args.with_examples),
-    )
-
-    print("Initialized .sprout workspace")
+    if args.global_mode:
+        report = initialize_global_workspace()
+        print("Initialized global sprout directory")
+    else:
+        report = initialize_workspace(
+            Path.cwd(),
+            profile=args.profile,
+            profile_file=args.profile_file,
+            with_examples=bool(args.with_examples),
+        )
+        print("Initialized .sprout workspace")
     if report.created:
         print("Created:")
         for path in report.created:
@@ -192,14 +206,23 @@ def _run_init(args: argparse.Namespace) -> int:
 
 
 def _run_list(args: argparse.Namespace) -> int:
-    registry = load_registry(Path.cwd())
+    if args.global_mode:
+        registry = load_global_registry()
+    else:
+        registry = load_registry(Path.cwd())
     return _print_registry(registry, include_all=bool(args.all))
 
 
-def _run_doctor() -> int:
-    registry = load_registry(Path.cwd())
+def _run_doctor(args: argparse.Namespace) -> int:
+    if args.global_mode:
+        registry = load_global_registry()
+    else:
+        registry = load_registry(Path.cwd())
 
-    print(f"Project root: {registry.root}")
+    mode_label = "Global" if args.global_mode else "Project"
+
+    root_label = "Global directory" if args.global_mode else "Project root"
+    print(f"{root_label}: {registry.root}")
     print(f"Config: conflict={registry.config.conflict}")
     print(f"Valid commands: {len(registry.commands)}")
 
@@ -216,7 +239,7 @@ def _run_doctor() -> int:
     # Template validation
     template_issues = []
     for command in registry.commands.values():
-        issues = validate_template_variables(command)
+        issues = validate_template_variables(command, is_global=args.global_mode)
         template_issues.extend(issues)
 
     if template_issues:
@@ -344,7 +367,11 @@ def _print_interactive_summary(command, values: dict[str, Any], policy: str, pla
 
 
 def _run_new(args: argparse.Namespace) -> int:
-    registry = load_registry(Path.cwd())
+    global_mode = getattr(args, 'global_mode', False)
+    if global_mode:
+        registry = load_global_registry()
+    else:
+        registry = load_registry(Path.cwd())
 
     if args.command_name not in registry.commands:
         print(f"Command not available: {args.command_name}", file=sys.stderr)
@@ -368,7 +395,8 @@ def _run_new(args: argparse.Namespace) -> int:
                 print(f"  - {name}{desc}", file=sys.stderr)
         else:
             print("Available commands: <none>", file=sys.stderr)
-        print("Hint: run `sprout list` to inspect all commands.", file=sys.stderr)
+        mode_hint = " -g" if global_mode else ""
+        print(f"Hint: run `sprout list{mode_hint}` to inspect all commands.", file=sys.stderr)
         return 1
 
     command = registry.commands[args.command_name]
@@ -397,21 +425,43 @@ def _run_new(args: argparse.Namespace) -> int:
         provided,
         interactive=interactive_mode,
     )
-    context = build_variable_context(values)
+
+    mode: Literal['project', 'global'] = 'global' if global_mode else 'project'
+    context = build_variable_context(values, mode=mode)
+
+    # Determine sandbox root for global mode
+    if global_mode and command.root is not None:
+        from .core import render_text
+        rendered_root = render_text(command.root, context, scope='asset').strip()
+        root_path = Path(rendered_root)
+        if root_path.is_absolute():
+            sandbox_root = root_path.resolve(strict=False)
+        else:
+            sandbox_root = (Path.cwd() / root_path).resolve(strict=False)
+    elif global_mode:
+        sandbox_root = Path.cwd()
+    else:
+        sandbox_root = registry.root
 
     policy = effective_conflict_policy(command, registry.config, args.conflict)
-    plan = build_generation_plan(command, registry.root, context, policy)
-    preview_results = apply_generation_plan(plan, registry.root, dry_run=True)
-    planned_actions = plan_post_actions(command, registry.root, context, preview_results)
+    plan = build_generation_plan(
+        command, sandbox_root, context, policy,
+        allow_absolute=global_mode, mode=mode,
+    )
+    preview_results = apply_generation_plan(plan, sandbox_root, dry_run=True)
+    planned_actions = plan_post_actions(
+        command, sandbox_root, context, preview_results,
+        allow_absolute=global_mode, mode=mode,
+    )
 
     if interactive_mode:
-        _print_interactive_summary(command, values, policy, plan, planned_actions, registry.root)
+        _print_interactive_summary(command, values, policy, plan, planned_actions, sandbox_root)
         if not _read_confirmation("Proceed? [Y/n] "):
             print("Cancelled. No files were created.", file=sys.stderr)
             return 1
 
     dry_run = bool(getattr(args, "dry_run", False))
-    results = preview_results if dry_run else apply_generation_plan(plan, registry.root, dry_run=False)
+    results = preview_results if dry_run else apply_generation_plan(plan, sandbox_root, dry_run=False)
 
     prefix = "[DRY-RUN] " if dry_run else ""
     print(f"{prefix}Executed command: {command.name}")
@@ -460,7 +510,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "list":
             return _run_list(args)
         if args.command == "doctor":
-            return _run_doctor()
+            return _run_doctor(args)
         if args.command in {"builtin", "buildin"}:
             return _run_builtin(args)
         if args.command == "doc":

@@ -71,6 +71,7 @@ class CommandSpec:
     assets: list[AssetSpec]
     actions: list[ActionSpec] = field(default_factory=list)
     conflict: ConflictPolicy | None = None
+    root: str | None = None
 
 
 @dataclass(slots=True)
@@ -94,6 +95,7 @@ class CommandRegistry:
     commands: dict[str, CommandSpec]
     invalid: list[CommandIssue] = field(default_factory=list)
     conflicts: list[CommandIssue] = field(default_factory=list)
+    is_global: bool = False
 
 
 @dataclass(slots=True)

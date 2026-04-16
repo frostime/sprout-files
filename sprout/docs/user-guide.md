@@ -59,6 +59,14 @@ sprout init --with-examples          # adds example command packages (issue/task
 sprout init --profile-file ./p.json  # custom scaffold profile
 ```
 
+### `sprout init --global`
+
+Create a global sprout directory at `~/.config/sprout/`. See [Global Mode](#global-mode) for details.
+
+```bash
+sprout init --global
+```
+
 ### `sprout list`
 
 Show discovered command packages.
@@ -66,6 +74,7 @@ Show discovered command packages.
 ```bash
 sprout list        # valid commands only
 sprout list --all  # include invalid/conflicting entries
+sprout list -g    # list global commands
 ```
 
 ### `sprout doctor`
@@ -73,7 +82,8 @@ sprout list --all  # include invalid/conflicting entries
 Validate the command registry and report issues (invalid manifests, conflicts, template variable problems).
 
 ```bash
-sprout doctor
+sprout doctor      # project commands
+sprout doctor -g   # global commands
 ```
 
 ### `sprout builtin <name>`
@@ -129,6 +139,94 @@ sprout new issue name=login type=feat
 | `--no-input` | Disable all interactive prompts |
 | `-n`, `--dry-run` | Show plan without creating files |
 | `--conflict <policy>` | Override conflict policy for this run |
+| `-g`, `--global` | Use global sprout directory (~/.config/sprout/) |
+
+---
+
+## Global Mode
+
+Sprout can operate in **global mode** to create files anywhere on your system — outside any project. This is useful for personal workflow shortcuts like creating temporary directories, notes, or workspace scaffolds.
+
+### Setup
+
+```bash
+sprout init --global
+```
+
+This creates `~/.config/sprout/` with a `config.yaml` and `__new__/` directory for global commands.
+
+### Global Command Structure
+
+```
+~/.config/sprout/
+├── config.yaml
+└── __new__/
+    └── <command>/
+        └── manifest.yaml
+```
+
+Global commands support all manifest features, plus:
+
+- **`root` field** — optional; declares the base directory for relative asset paths
+  - Supports template variables: `root: "{{home}}/temp"`
+  - Without `root`, asset paths resolve relative to the current working directory
+- **Global template variables**: `{{home}}`, `{{cwd}}`, `{{platform}}`
+- **Absolute paths** — global assets may render to absolute paths (e.g., `{{home}}/Downloads/note.md`)
+
+### Example: Temp Directory Command
+
+```yaml
+# ~/.config/sprout/__new__/temp/manifest.yaml
+name: temp
+description: Create a temporary directory
+root: "{{home}}/temp"
+inputs:
+  - name: name
+    type: string
+    default: "temp-{{rand.str:6}}"
+assets:
+  - type: dir
+    path: "{{name}}"
+    ref: target
+actions:
+  - phase: post
+    shell: 'echo "Created: {{assets.target.abs_path}}"'
+```
+
+```bash
+sprout new -g temp              # creates ~/temp/temp-xxxxxx
+sprout new -g temp name=myproj  # creates ~/temp/myproj
+```
+
+### Example: Quick Note Command (no root)
+
+```yaml
+# ~/.config/sprout/__new__/note/manifest.yaml
+name: note
+description: Create a quick note in the current directory
+inputs:
+  - name: title
+    type: string
+assets:
+  - type: file
+    path: "{{title}}.md"
+    content: "# {{title}}\n\nCreated at {{datetime}}\n"
+```
+
+```bash
+cd ~/Desktop
+sprout new -g note title=idea
+# creates ~/Desktop/idea.md
+```
+
+### Key Differences from Project Mode
+
+| | Project mode (default) | Global mode (`-g`) |
+|---|---|---|
+| Registry | `.sprout/` in project | `~/.config/sprout/` |
+| Asset paths | Relative to project root | Relative to `root` or cwd |
+| Absolute paths | Not allowed | Allowed |
+| Template variables | `project.root`, `project.root_name` | `home`, `cwd`, `platform` |
 
 ---
 
@@ -190,3 +288,4 @@ During interactive prompts, type `q`, `quit`, or `exit` to cancel.
 - Use `--dry-run` to preview before generating
 - All path separators in variable output use `/`
 - To inspect packaged documentation, use `sprout doc list`
+- Use `sprout new -g <command>` to run global commands from any directory

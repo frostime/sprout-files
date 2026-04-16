@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+import sys
+
 from .models import (
     ActionSpec,
     AssetSpec,
@@ -38,6 +40,8 @@ CONFIG_NAMES = (
     'config.json',
 )
 
+GLOBAL_SPROUT_DIR = Path.home() / '.config' / 'sprout'
+
 VALID_INPUT_TYPES = {'string', 'number', 'enum'}
 VALID_ASSET_TYPES = {'file', 'dir'}
 VALID_CONFLICT_POLICIES = {'fail', 'overwrite', 'skip', 'rename'}
@@ -60,6 +64,7 @@ BUILTIN_VARIABLES = {
     'date', 'time', 'datetime', 'timestamp',
 }
 PROJECT_VARIABLES = {'project.root', 'project.root_name'}
+GLOBAL_VARIABLES = {'home', 'cwd', 'platform'}
 PREFERRED_COMMANDS_DIRNAME = '__new__'
 LEGACY_COMMANDS_DIRNAME = 'commands'
 
@@ -110,8 +115,25 @@ def discover_project_root(start: Path, directory_name: str = '.sprout') -> Path:
     )
 
 
+def discover_global_dir() -> Path:
+    global_dir = GLOBAL_SPROUT_DIR
+    if not global_dir.is_dir():
+        raise DiscoveryError(
+            f"Global sprout directory not found. Expected '{global_dir}'. "
+            f"Run 'sprout init --global' to create it."
+        )
+    return global_dir
+
+
 def authoring_directories(sprout_dir: Path) -> tuple[Path, Path]:
     return sprout_dir / PREFERRED_COMMANDS_DIRNAME, sprout_dir / LEGACY_COMMANDS_DIRNAME
+
+
+def iter_global_command_package_dirs(global_dir: Path) -> list[Path]:
+    preferred_dir = global_dir / PREFERRED_COMMANDS_DIRNAME
+    if not preferred_dir.exists() or not preferred_dir.is_dir():
+        return []
+    return [child for child in sorted(preferred_dir.iterdir()) if child.is_dir()]
 
 
 def iter_command_package_dirs(sprout_dir: Path) -> list[Path]:
@@ -414,6 +436,11 @@ def load_command_spec(package_dir: Path) -> CommandSpec:
         raise ValidationError(f'{manifest_path}: actions must be a list')
     actions = [_parse_action_spec(item, manifest_path, i) for i, item in enumerate(actions_raw)]
 
+    root = data.get('root')
+    root_str: str | None = None
+    if root is not None:
+        root_str = str(root).strip() or None
+
     return CommandSpec(
         name=name,
         description=description,
@@ -423,6 +450,7 @@ def load_command_spec(package_dir: Path) -> CommandSpec:
         assets=assets,
         actions=actions,
         conflict=conflict_policy,
+        root=root_str,
     )
 
 
@@ -475,9 +503,53 @@ def load_registry(start_dir: Path) -> CommandRegistry:
     )
 
 
-# ================================================
-# Section: Input collection
-# ================================================
+def load_global_registry() -> CommandRegistry:
+    global_dir = discover_global_dir()
+    config = _read_project_config(global_dir)
+
+    loaded: list[CommandSpec] = []
+    invalid: list[CommandIssue] = []
+
+    for child in iter_global_command_package_dirs(global_dir):
+        try:
+            loaded.append(load_command_spec(child))
+        except ValidationError as exc:
+            invalid.append(CommandIssue(name=child.name, source=child, message=str(exc)))
+
+    grouped: dict[str, list[CommandSpec]] = {}
+    for command in loaded:
+        grouped.setdefault(command.name, []).append(command)
+
+    commands: dict[str, CommandSpec] = {}
+    conflicts: list[CommandIssue] = []
+
+    for name, items in grouped.items():
+        if len(items) == 1:
+            commands[name] = items[0]
+            continue
+
+        sources = [str(item.package_dir) for item in items]
+        for item in items:
+            others = [src for src in sources if src != str(item.package_dir)]
+            conflicts.append(
+                CommandIssue(
+                    name=name,
+                    source=item.package_dir,
+                    message=(
+                        f"Duplicate command name '{name}'. Conflicts with: {', '.join(others)}"
+                    ),
+                )
+            )
+
+    return CommandRegistry(
+        root=global_dir,
+        sprout_dir=global_dir,
+        config=config,
+        commands=commands,
+        invalid=invalid,
+        conflicts=conflicts,
+        is_global=True,
+    )
 
 
 def parse_key_value_pairs(items: list[str]) -> dict[str, str]:
@@ -695,24 +767,46 @@ def suggest_command_names(name: str, available: list[str], *, limit: int = 3) ->
 # ================================================
 
 
-def build_variable_context(values: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+def _build_builtin_time_context(now: datetime) -> dict[str, str]:
+    return {
+        'YYYY': now.strftime('%Y'),
+        'YY': now.strftime('%y'),
+        'MM': now.strftime('%m'),
+        'DD': now.strftime('%d'),
+        'hh': now.strftime('%H'),
+        'mm': now.strftime('%M'),
+        'ss': now.strftime('%S'),
+        'date': now.strftime('%Y-%m-%d'),
+        'time': now.strftime('%H:%M:%S'),
+        'datetime': now.strftime('%Y-%m-%dT%H:%M:%S'),
+        'timestamp': str(int(now.timestamp())),
+    }
+
+
+def _build_global_context() -> dict[str, str]:
+    platform_name = {'win32': 'win32', 'darwin': 'darwin'}.get(sys.platform, 'linux')
+    return {
+        'home': Path.home().as_posix(),
+        'cwd': Path.cwd().as_posix(),
+        'platform': platform_name,
+    }
+
+
+def build_variable_context(
+    values: dict[str, Any],
+    now: datetime | None = None,
+    *,
+    mode: Literal['project', 'global'] = 'project',
+    project_root: Path | None = None,
+) -> dict[str, Any]:
     timestamp = now or datetime.now()
     context: dict[str, Any] = dict(values)
-    context.update(
-        {
-            'YYYY': timestamp.strftime('%Y'),
-            'YY': timestamp.strftime('%y'),
-            'MM': timestamp.strftime('%m'),
-            'DD': timestamp.strftime('%d'),
-            'hh': timestamp.strftime('%H'),
-            'mm': timestamp.strftime('%M'),
-            'ss': timestamp.strftime('%S'),
-            'date': timestamp.strftime('%Y-%m-%d'),
-            'time': timestamp.strftime('%H:%M:%S'),
-            'datetime': timestamp.strftime('%Y-%m-%dT%H:%M:%S'),
-            'timestamp': str(int(timestamp.timestamp())),
-        }
-    )
+    context.update(_build_builtin_time_context(timestamp))
+    if mode == 'project':
+        if project_root is not None:
+            context.update(_build_project_context(project_root))
+    else:
+        context.update(_build_global_context())
     return context
 
 
@@ -738,14 +832,19 @@ def _build_project_context(project_root: Path) -> dict[str, str]:
 
 
 def _path_to_rel_string(project_root: Path, path: Path) -> str:
-    return path.resolve(strict=False).relative_to(project_root.resolve()).as_posix()
+    path_resolved = path.resolve(strict=False)
+    root_resolved = project_root.resolve()
+    try:
+        return path_resolved.relative_to(root_resolved).as_posix()
+    except ValueError:
+        return path_resolved.as_posix()
 
 
 def _build_asset_ref_entries(project_root: Path, ref: str, final_path: Path, *, include_bare_abs: bool) -> dict[str, str]:
     rel_path = _path_to_rel_string(project_root, final_path)
     abs_path = final_path.resolve(strict=False).as_posix()
     parent = final_path.parent.resolve(strict=False)
-    parent_rel = parent.relative_to(project_root.resolve()).as_posix()
+    parent_rel = _path_to_rel_string(project_root, parent)
     if parent_rel == '.':
         parent_rel = ''
 
@@ -869,11 +968,25 @@ def _validate_template_text(
     return issues
 
 
-def validate_template_variables(command: CommandSpec) -> list[TemplateValidationIssue]:
+def validate_template_variables(command: CommandSpec, *, is_global: bool = False) -> list[TemplateValidationIssue]:
     issues: list[TemplateValidationIssue] = []
     base_keys = {input_spec.name for input_spec in command.inputs}
     base_keys.update(BUILTIN_VARIABLES)
-    base_keys.update(PROJECT_VARIABLES)
+    if is_global:
+        base_keys.update(GLOBAL_VARIABLES)
+    else:
+        base_keys.update(PROJECT_VARIABLES)
+
+    if is_global and command.root:
+        issues.extend(
+            _validate_template_text(
+                command.root,
+                template_name='root',
+                command_name=command.name,
+                scope='asset',
+                allowed_keys=set(base_keys),
+            )
+        )
 
     seen_refs: set[str] = set()
     for index, asset in enumerate(command.assets):
@@ -1034,16 +1147,30 @@ def build_generation_plan(
     project_root: Path,
     context: dict[str, Any],
     policy: ConflictPolicy,
+    *,
+    allow_absolute: bool = False,
+    mode: Literal['project', 'global'] = 'project',
 ) -> list[PlannedAsset]:
     occupied: set[Path] = set()
     planned: list[PlannedAsset] = []
     ref_paths: dict[str, Path] = {}
 
+    # Determine sandbox root for relative paths
+    sandbox_root = project_root
+    if mode == 'global' and command.root is not None:
+        rendered_root = render_text(command.root, context, scope='asset').strip()
+        root_path = Path(rendered_root)
+        if root_path.is_absolute():
+            sandbox_root = root_path.resolve(strict=False)
+        else:
+            sandbox_root = (Path.cwd() / root_path).resolve(strict=False)
+
     for index, asset in enumerate(command.assets):
         asset_context = dict(context)
-        asset_context.update(_build_project_context(project_root))
+        if mode == 'project':
+            asset_context.update(_build_project_context(project_root))
         asset_context.update(
-            _build_asset_ref_context(project_root, ref_paths, include_bare_abs=False)
+            _build_asset_ref_context(sandbox_root, ref_paths, include_bare_abs=False)
         )
 
         requested_path = render_text(asset.path, asset_context, scope='asset').strip()
@@ -1054,12 +1181,14 @@ def build_generation_plan(
 
         relative_path = Path(requested_path)
         if relative_path.is_absolute():
-            raise ValidationError(
-                f"Command '{command.name}' rendered an absolute path: {requested_path}"
-            )
-
-        target = (project_root / relative_path).resolve(strict=False)
-        _ensure_within_root(project_root, target)
+            if not allow_absolute:
+                raise ValidationError(
+                    f"Command '{command.name}' rendered an absolute path: {requested_path}"
+                )
+            target = relative_path.resolve(strict=False)
+        else:
+            target = (sandbox_root / relative_path).resolve(strict=False)
+            _ensure_within_root(sandbox_root, target)
 
         content: str | None = None
         if asset.type == 'file':
@@ -1146,21 +1275,26 @@ def build_action_context(
     values: dict[str, Any],
     generated: list[GeneratedItem],
     project_root: Path,
+    *,
+    mode: Literal['project', 'global'] = 'project',
 ) -> dict[str, Any]:
     context = dict(values)
-    context.update(_build_project_context(project_root))
+    if mode == 'project':
+        context.update(_build_project_context(project_root))
     ref_paths = {item.ref: item.final_path for item in generated if item.ref is not None}
     context.update(_build_asset_ref_context(project_root, ref_paths, include_bare_abs=True))
     return context
 
 
-def _resolve_action_cwd(cwd_text: str, project_root: Path) -> Path:
+def _resolve_action_cwd(cwd_text: str, project_root: Path, *, allow_absolute: bool = False) -> Path:
     cwd_path = Path(cwd_text)
     if not cwd_path.is_absolute():
         cwd_path = (project_root / cwd_path).resolve(strict=False)
+        _ensure_within_root(project_root, cwd_path)
     else:
         cwd_path = cwd_path.resolve(strict=False)
-    _ensure_within_root(project_root, cwd_path)
+        if not allow_absolute:
+            _ensure_within_root(project_root, cwd_path)
     return cwd_path
 
 
@@ -1175,8 +1309,11 @@ def plan_post_actions(
     project_root: Path,
     values: dict[str, Any],
     generated: list[GeneratedItem],
+    *,
+    allow_absolute: bool = False,
+    mode: Literal['project', 'global'] = 'project',
 ) -> list[PlannedAction]:
-    context = build_action_context(values, generated, project_root)
+    context = build_action_context(values, generated, project_root, mode=mode)
     planned: list[PlannedAction] = []
 
     for index, action in enumerate(command.actions):
@@ -1185,7 +1322,7 @@ def plan_post_actions(
             rendered_cwd = render_text(action.cwd, context, scope='action').strip()
             if not rendered_cwd:
                 raise ValidationError(f"Command '{command.name}' rendered empty cwd for action #{index + 1}")
-            cwd = _resolve_action_cwd(rendered_cwd, project_root)
+            cwd = _resolve_action_cwd(rendered_cwd, project_root, allow_absolute=allow_absolute)
 
         if action.run is not None:
             argv = [render_text(part, context, scope='action') for part in action.run]
