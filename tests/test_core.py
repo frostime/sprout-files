@@ -11,6 +11,7 @@ from sprout.core import (
     collect_inputs,
     discover_global_dir,
     discover_project_root,
+    evaluate_computed_values,
     find_missing_required_inputs,
     iter_command_package_dirs,
     iter_global_command_package_dirs,
@@ -253,6 +254,110 @@ class CoreTests(unittest.TestCase):
             command = load_command_spec(command_dir)
             issues = validate_template_variables(command)
             self.assertEqual(issues, [])
+
+    def test_schema_and_computed_values(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            command_dir = Path(td) / 'cmd'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'schema': 'sprout.manifest/v1',
+                        'name': 'demo',
+                        'inputs': [{'name': 'name', 'type': 'string'}],
+                        'computed': [
+                            {'name': 'slug', 'expr': "name.strip().lower().replace(' ', '-')"},
+                            {'name': 'title', 'expr': "slug + '-doc'"},
+                        ],
+                        'assets': [
+                            {'type': 'file', 'path': '{{title}}.md', 'content': '# {{name}}'},
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+            command = load_command_spec(command_dir)
+            values = collect_inputs(command, {'name': 'My Task'}, interactive=False)
+            context = build_variable_context(values)
+            evaluate_computed_values(command, context)
+
+            self.assertEqual(context['slug'], 'my-task')
+            self.assertEqual(context['title'], 'my-task-doc')
+
+    def test_unknown_schema_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            command_dir = Path(td) / 'cmd'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'schema': 'sprout.manifest/v999',
+                        'name': 'demo',
+                        'inputs': [],
+                        'assets': [{'type': 'dir', 'path': 'out'}],
+                    }
+                ),
+            )
+
+            with self.assertRaises(ValidationError) as ctx:
+                load_command_spec(command_dir)
+            self.assertIn('unsupported manifest schema', str(ctx.exception))
+
+    def test_missing_schema_allows_v1_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            command_dir = Path(td) / 'cmd'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'demo',
+                        'inputs': [{'name': 'name', 'type': 'string'}],
+                        'computed': [{'name': 'slug', 'expr': "name.lower()"}],
+                        'assets': [
+                            {
+                                'type': 'file',
+                                'when': {'expr': "slug == 'x'"},
+                                'path': '{{slug}}.md',
+                                'content': '{{name}}',
+                            }
+                        ],
+                    }
+                ),
+            )
+
+            command = load_command_spec(command_dir)
+            self.assertIsNone(command.schema)
+            self.assertEqual(command.computed[0].name, 'slug')
+            self.assertIsNotNone(command.assets[0].when)
+
+    def test_boolean_input_coercion_and_optional_default(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            command_dir = Path(td) / 'cmd'
+            _write(
+                command_dir / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'demo',
+                        'inputs': [
+                            {'name': 'enabled', 'type': 'boolean'},
+                            {'name': 'optional', 'type': 'boolean', 'required': False},
+                        ],
+                        'assets': [{'type': 'dir', 'path': 'out'}],
+                    }
+                ),
+            )
+            command = load_command_spec(command_dir)
+
+            values = collect_inputs(command, {'enabled': 'false'}, interactive=False)
+            self.assertIs(values['enabled'], False)
+            self.assertIs(values['optional'], False)
+
+            values = collect_inputs(command, {'enabled': 'yes'}, interactive=False)
+            self.assertIs(values['enabled'], True)
+
+            with self.assertRaises(ValidationError):
+                collect_inputs(command, {'enabled': 'maybe'}, interactive=False)
 
 
 class GlobalModeTests(unittest.TestCase):

@@ -13,6 +13,7 @@ from .core import (
     build_variable_context,
     collect_inputs,
     effective_conflict_policy,
+    evaluate_computed_values,
     execute_actions,
     find_missing_required_inputs,
     load_global_registry,
@@ -24,6 +25,8 @@ from .core import (
     plan_post_actions,
     render_input_values,
     suggest_command_names,
+    validate_expression_syntax,
+    validate_static_asset_sources,
     validate_template_variables,
 )
 from .models import DiscoveryError, GenerationError, UserAbortError, ValidationError
@@ -240,7 +243,10 @@ def _run_doctor(args: argparse.Namespace) -> int:
     # Template validation
     template_issues = []
     for command in registry.commands.values():
-        issues = validate_template_variables(command, is_global=args.global_mode)
+        issues = []
+        issues.extend(validate_expression_syntax(command))
+        issues.extend(validate_static_asset_sources(command))
+        issues.extend(validate_template_variables(command, is_global=args.global_mode))
         template_issues.extend(issues)
 
     if template_issues:
@@ -430,6 +436,7 @@ def _run_new(args: argparse.Namespace) -> int:
     mode: Literal['project', 'global'] = 'global' if global_mode else 'project'
     context = build_variable_context(values, mode=mode)
     render_input_values(command, context)
+    evaluate_computed_values(command, context)
 
     # Determine sandbox root for global mode
     if global_mode and command.root is not None:

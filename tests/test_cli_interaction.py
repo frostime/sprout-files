@@ -324,6 +324,68 @@ class CliInteractionTests(unittest.TestCase):
                 self.assertIn('Global directory', stdout.getvalue())
                 self.assertIn('OK', stdout.getvalue())
 
+    def test_bad_command_asset_source_does_not_block_other_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root / '.sprout' / 'config.yaml', 'conflict: fail\n')
+            _write(
+                root / '.sprout' / '__new__' / 'bad' / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'bad',
+                        'inputs': [],
+                        'assets': [
+                            {
+                                'type': 'file',
+                                'path': 'bad.md',
+                                'template': 'x.md',
+                                'content': 'bad',
+                            }
+                        ],
+                    }
+                ),
+            )
+            _write(
+                root / '.sprout' / '__new__' / 'good' / 'manifest.json',
+                json.dumps(
+                    {
+                        'name': 'good',
+                        'inputs': [],
+                        'assets': [{'type': 'file', 'path': 'good.md', 'content': 'good'}],
+                    }
+                ),
+            )
+
+            with patch('pathlib.Path.cwd', return_value=root):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    list_code = main(['list'])
+                self.assertEqual(list_code, 0)
+                self.assertIn('bad', stdout.getvalue())
+                self.assertIn('good', stdout.getvalue())
+
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    good_code = main(['new', 'good'])
+                self.assertEqual(good_code, 0)
+                self.assertTrue((root / 'good.md').exists())
+
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    bad_code = main(['new', 'bad'])
+                self.assertEqual(bad_code, 1)
+                self.assertIn('exactly one of template or content', stderr.getvalue())
+
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    doctor_code = main(['doctor'])
+                self.assertEqual(doctor_code, 1)
+                self.assertIn('exactly one of template or content', stdout.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 
 ConflictPolicy = Literal["fail", "overwrite", "skip", "rename"]
-InputType = Literal["string", "number", "enum"]
+InputType = Literal["string", "number", "enum", "boolean"]
 AssetType = Literal["file", "dir"]
 ActionPhase = Literal["post"]
 
@@ -44,12 +44,24 @@ class InputSpec:
 
 
 @dataclass(slots=True)
+class ComputedSpec:
+    name: str
+    expr: str
+
+
+@dataclass(slots=True)
+class ConditionSpec:
+    expr: str
+
+
+@dataclass(slots=True)
 class AssetSpec:
     type: AssetType
     path: str
     template: str | None = None
     content: str | None = None
     ref: str | None = None
+    when: ConditionSpec | None = None
 
 
 @dataclass(slots=True)
@@ -69,9 +81,11 @@ class CommandSpec:
     manifest_path: Path
     inputs: list[InputSpec]
     assets: list[AssetSpec]
+    computed: list[ComputedSpec] = field(default_factory=list)
     actions: list[ActionSpec] = field(default_factory=list)
     conflict: ConflictPolicy | None = None
     root: str | None = None
+    schema: str | None = None
 
 
 @dataclass(slots=True)

@@ -74,6 +74,8 @@ conflict: fail
 ## Command manifest: `.sprout/__new__/<name>/manifest.yaml`
 
 ```yaml
+schema: sprout.manifest/v1
+
 name: issue
 description: Create an issue document
 
@@ -85,7 +87,7 @@ inputs:
   - name: name
     type: string
     required: true
-    description: Issue slug used in file name
+    description: Issue title used in generated content
 
   - name: type
     type: enum
@@ -96,23 +98,31 @@ inputs:
     default: bug
     description: Issue category
 
-  - name: priority
-    type: number
-    required: false
-    min: 1
-    max: 5
-    default: 3
-    description: Optional priority score
+  - name: with_tests
+    type: boolean
+    default: false
+    description: Whether to create a test plan
+
+computed:
+  - name: slug
+    expr: "name.strip().lower().replace(' ', '-')"
 
 assets:
   - type: dir
-    path: issues
+    path: issues/{{slug}}
     ref: issues_dir
 
   - type: file
-    path: "{{assets.issues_dir.rel_path}}/{{YY}}-{{MM}}-{{DD}}_{{name}}-{{rand.str:6}}.md"
+    path: "{{assets.issues_dir.rel_path}}/{{YY}}-{{MM}}-{{DD}}_{{slug}}-{{rand.str:6}}.md"
     template: issue.md
     ref: issue_file
+
+  - type: file
+    when:
+      expr: "with_tests"
+    path: "{{assets.issues_dir.rel_path}}/test-plan.md"
+    content: |
+      # Test Plan for {{name}}
 
 actions:
   - phase: post
@@ -124,15 +134,29 @@ actions:
 
 ## Field rules
 
+### Top-level `schema`
+
+- `schema: sprout.manifest/v1` enables the current explicit manifest grammar
+- Missing `schema` remains compatible with legacy manifests
+- Unknown schema values are rejected for that command package
+
 ### `inputs[*]`
 
 - `name`: required, unique within the command
-- `type`: `string` | `number` | `enum`
+- `type`: `string` | `number` | `enum` | `boolean`
 - `required`: optional, defaults to `true`
 - `description`: optional but recommended
 - `default`: optional; supports `{{...}}` template expressions (e.g. `{{rand.str:6}}`, `{{YYYY}}-{{MM}}`)
 - `enum`: required when `type: enum`
 - `min` / `max`: only for `type: number`
+
+### `computed[*]`
+
+- Optional list evaluated after inputs and before assets
+- Each entry has `name` and `expr`
+- `expr` is a Python expression evaluated against inputs, built-in time variables, and earlier computed values
+- Computed names become normal template variables, e.g. `path: "{{slug}}.md"`
+- Computed names must not duplicate inputs or reserved built-in names
 
 ### `assets[*]`
 
@@ -141,6 +165,12 @@ actions:
 - `template`: for file assets, path to template file inside the same command package
 - `content`: optional inline content for simple files
 - `ref`: optional stable name for later asset/action references
+- `when`: optional condition object, currently `when: {expr: "..."}`
+
+Active asset source rules:
+- `file` assets must define exactly one of `template` or `content`
+- `dir` assets must define neither `template` nor `content`
+- assets with `when.expr` evaluating to false are skipped before source validation and ref registration
 
 ### `actions[*]`
 
@@ -159,16 +189,17 @@ actions:
 
 ---
 
-## Rendering rules
+## Rendering and expression rules
 
-- Placeholders use `{{...}}` only
-- Project mode variables = user inputs + built-in time values + `project.root` / `project.root_name` + asset refs + random tokens
-- Global mode variables = user inputs + built-in time values + `home` / `cwd` / `platform` + asset refs + random tokens
+- `{{...}}` means text interpolation only
+- `expr: "..."` means Python expression evaluation in `computed[*].expr` and `assets[*].when.expr`
+- Project mode variables = user inputs + computed values + built-in time values + `project.root` / `project.root_name` + asset refs + random tokens
+- Global mode variables = user inputs + computed values + built-in time values + `home` / `cwd` / `platform` + asset refs + random tokens
 - `inputs[*].default` values are also rendered as templates (e.g. `default: "{{rand.str:6}}"`)
-- Asset path templates may reference only earlier asset refs, and should use explicit suffixes such as `{{assets.root_dir.rel_path}}`
+- Asset path templates may reference only earlier active asset refs, and should use explicit suffixes such as `{{assets.root_dir.rel_path}}`
 - Action templates may use bare `{{assets.root_dir}}`, which means absolute path
 - Random tokens: `{{rand.str}}`, `{{rand.str:10}}`, `{{rand.num}}`, `{{rand.num:6}}`
-- No `if`, `for`, function calls, or nested logic
+- Template interpolation has no `if`, `for`, function calls, or nested logic; use `computed[*].expr` / `when.expr` for Python expressions
 - In **project mode**: rendered paths must stay inside the project root and are normalized to `/` separators
 - In **global mode**: rendered paths may be absolute; relative paths resolve from the `root` field or cwd
 

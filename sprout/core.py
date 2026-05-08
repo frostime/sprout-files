@@ -18,6 +18,8 @@ from .models import (
     CommandIssue,
     CommandRegistry,
     CommandSpec,
+    ConditionSpec,
+    ComputedSpec,
     ConflictPolicy,
     DiscoveryError,
     GenerationError,
@@ -42,10 +44,11 @@ CONFIG_NAMES = (
 
 GLOBAL_SPROUT_DIR = Path.home() / '.config' / 'sprout'
 
-VALID_INPUT_TYPES = {'string', 'number', 'enum'}
+VALID_INPUT_TYPES = {'string', 'number', 'enum', 'boolean'}
 VALID_ASSET_TYPES = {'file', 'dir'}
 VALID_CONFLICT_POLICIES = {'fail', 'overwrite', 'skip', 'rename'}
 VALID_ACTION_PHASES = {'post'}
+SUPPORTED_MANIFEST_SCHEMAS = {'sprout.manifest/v1'}
 VALID_ASSET_SUFFIXES = {'abs_path', 'rel_path', 'name', 'parent_abs', 'parent_rel'}
 PLACEHOLDER_PATTERN = re.compile(r'\{\{\s*([^{}]+?)\s*\}\}')
 IDENTIFIER_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
@@ -65,6 +68,11 @@ BUILTIN_VARIABLES = {
 }
 PROJECT_VARIABLES = {'project.root', 'project.root_name'}
 GLOBAL_VARIABLES = {'home', 'cwd', 'platform'}
+RESERVED_COMPUTED_NAMES = {
+    'assets', 'project', 'rand',
+    'home', 'cwd', 'platform',
+    *BUILTIN_VARIABLES,
+}
 PREFERRED_COMMANDS_DIRNAME = '__new__'
 LEGACY_COMMANDS_DIRNAME = 'commands'
 
@@ -289,6 +297,37 @@ def _parse_input_spec(raw: Any, manifest_path: Path, index: int) -> InputSpec:
     )
 
 
+def _parse_condition_spec(raw: Any, manifest_path: Path, field_path: str) -> ConditionSpec:
+    if not isinstance(raw, dict):
+        raise ValidationError(f'{manifest_path}: {field_path} must be an object')
+    expr = raw.get('expr')
+    if not isinstance(expr, str) or not expr.strip():
+        raise ValidationError(f'{manifest_path}: {field_path}.expr must be a non-empty string')
+    return ConditionSpec(expr=expr.strip())
+
+
+def _parse_computed_spec(raw: Any, manifest_path: Path, index: int) -> ComputedSpec:
+    if not isinstance(raw, dict):
+        raise ValidationError(
+            f'{manifest_path}: computed[{index}] must be an object, got {type(raw).__name__}'
+        )
+
+    name = raw.get('name')
+    if not isinstance(name, str) or not name.strip():
+        raise ValidationError(f'{manifest_path}: computed[{index}].name must be a non-empty string')
+    name = name.strip()
+    if not IDENTIFIER_PATTERN.fullmatch(name):
+        raise ValidationError(
+            f'{manifest_path}: computed[{index}].name must match {IDENTIFIER_PATTERN.pattern}'
+        )
+
+    expr = raw.get('expr')
+    if not isinstance(expr, str) or not expr.strip():
+        raise ValidationError(f'{manifest_path}: computed[{index}].expr must be a non-empty string')
+
+    return ComputedSpec(name=name, expr=expr.strip())
+
+
 def _parse_asset_spec(raw: Any, manifest_path: Path, index: int) -> AssetSpec:
     if not isinstance(raw, dict):
         raise ValidationError(
@@ -323,12 +362,18 @@ def _parse_asset_spec(raw: Any, manifest_path: Path, index: int) -> AssetSpec:
                 f'{manifest_path}: assets[{index}].ref must match {IDENTIFIER_PATTERN.pattern}'
             )
 
+    when_raw = raw.get('when')
+    when = None
+    if when_raw is not None:
+        when = _parse_condition_spec(when_raw, manifest_path, f'assets[{index}].when')
+
     return AssetSpec(
         type=asset_type,  # type: ignore[arg-type]
         path=path.strip(),
         template=template,
         content=content,
         ref=ref,
+        when=when,
     )
 
 
@@ -384,6 +429,16 @@ def load_command_spec(package_dir: Path) -> CommandSpec:
     manifest_path = _manifest_path_for(package_dir)
     data = _load_mapping_file(manifest_path)
 
+    schema_raw = data.get('schema')
+    schema = None if schema_raw is None else str(schema_raw).strip()
+    if schema == '':
+        raise ValidationError(f'{manifest_path}: schema must not be empty')
+    if schema is not None and schema not in SUPPORTED_MANIFEST_SCHEMAS:
+        raise ValidationError(
+            f"{manifest_path}: unsupported manifest schema '{schema}'. "
+            f'Supported: {sorted(SUPPORTED_MANIFEST_SCHEMAS)}'
+        )
+
     name = str(data.get('name', package_dir.name)).strip()
     if not name:
         raise ValidationError(f'{manifest_path}: command name cannot be empty')
@@ -413,19 +468,31 @@ def load_command_spec(package_dir: Path) -> CommandSpec:
             raise ValidationError(f"{manifest_path}: duplicate input name '{input_spec.name}'")
         seen_input_names.add(input_spec.name)
 
+    computed_raw = data.get('computed', [])
+    if not isinstance(computed_raw, list):
+        raise ValidationError(f'{manifest_path}: computed must be a list')
+    computed = [_parse_computed_spec(item, manifest_path, i) for i, item in enumerate(computed_raw)]
+
+    seen_computed_names: set[str] = set()
+    for item in computed:
+        if item.name in seen_input_names:
+            raise ValidationError(
+                f"{manifest_path}: computed name '{item.name}' duplicates an input name"
+            )
+        if item.name in seen_computed_names:
+            raise ValidationError(f"{manifest_path}: duplicate computed name '{item.name}'")
+        if item.name in RESERVED_COMPUTED_NAMES:
+            raise ValidationError(f"{manifest_path}: computed name '{item.name}' is reserved")
+        seen_computed_names.add(item.name)
+
     assets_raw = data.get('assets', [])
     if not isinstance(assets_raw, list) or not assets_raw:
         raise ValidationError(f'{manifest_path}: assets must be a non-empty list')
+
     assets = [_parse_asset_spec(item, manifest_path, i) for i, item in enumerate(assets_raw)]
 
     seen_refs: set[str] = set()
-    for i, asset in enumerate(assets):
-        if asset.template:
-            template_path = package_dir / asset.template
-            if not template_path.exists() or not template_path.is_file():
-                raise ValidationError(
-                    f'{manifest_path}: assets[{i}].template not found: {asset.template}'
-                )
+    for asset in assets:
         if asset.ref is not None:
             if asset.ref in seen_refs:
                 raise ValidationError(f"{manifest_path}: duplicate asset ref '{asset.ref}'")
@@ -448,9 +515,11 @@ def load_command_spec(package_dir: Path) -> CommandSpec:
         manifest_path=manifest_path,
         inputs=inputs,
         assets=assets,
+        computed=computed,
         actions=actions,
         conflict=conflict_policy,
         root=root_str,
+        schema=schema,
     )
 
 
@@ -637,6 +706,8 @@ def _coerce_input_value(spec: InputSpec, raw: Any) -> Any:
         return '' if raw is None else str(raw)
     if spec.type == 'number':
         return _coerce_number(spec, raw)
+    if spec.type == 'boolean':
+        return _as_bool(raw)
     if spec.type == 'enum':
         text = '' if raw is None else str(raw)
         if text not in spec.enum:
@@ -658,6 +729,8 @@ def build_prompt_info(spec: InputSpec) -> PromptInfo:
         if spec.maximum is not None:
             bounds.append(f'max={spec.maximum:g}')
         detail_parts.append('number' if not bounds else f"number ({', '.join(bounds)})")
+    elif spec.type == 'boolean':
+        detail_parts.append('boolean')
     else:
         detail_parts.append('text')
 
@@ -693,7 +766,7 @@ def _prompt_missing_value(spec: InputSpec, prompt: Callable[[str], str] | None) 
         if raw == '' and spec.default is not None:
             raw = str(spec.default)
         if raw == '' and not spec.required:
-            return ''
+            return False if spec.type == 'boolean' else ''
         if raw == '' and spec.type == 'string' and spec.required:
             print(f"Invalid value: Input '{spec.name}' cannot be empty")
             continue
@@ -746,6 +819,8 @@ def collect_inputs(
             continue
         if spec.required:
             missing_required.append(spec.name)
+        elif spec.type == 'boolean':
+            values[spec.name] = False
         else:
             values[spec.name] = ''
 
@@ -774,6 +849,59 @@ def render_input_values(command: CommandSpec, context: dict[str, Any]) -> None:
         value = context.get(name)
         if isinstance(value, str) and PLACEHOLDER_PATTERN.search(value):
             context[name] = render_text(value, context, scope='base')
+
+
+# ================================================
+# Section: Expression evaluation
+# ================================================
+
+
+def evaluate_expression(expr: str, context: dict[str, Any], *, label: str) -> Any:
+    globals_dict = {
+        '__builtins__': {},
+        'str': str,
+        'int': int,
+        'float': float,
+        'bool': bool,
+        'len': len,
+        'min': min,
+        'max': max,
+        'round': round,
+    }
+    try:
+        return eval(expr, globals_dict, dict(context))
+    except Exception as exc:  # noqa: BLE001 - user expressions need boundary translation
+        raise ValidationError(f'{label} expression failed: {exc}') from exc
+
+
+def evaluate_computed_values(command: CommandSpec, context: dict[str, Any]) -> None:
+    for index, item in enumerate(command.computed):
+        if item.name in context:
+            raise ValidationError(
+                f"{command.manifest_path}: computed[{index}].name '{item.name}' "
+                'conflicts with an existing variable'
+            )
+        context[item.name] = evaluate_expression(
+            item.expr,
+            context,
+            label=f'{command.manifest_path}: computed[{index}] {item.name}',
+        )
+
+
+def is_asset_active(
+    command: CommandSpec,
+    asset: AssetSpec,
+    context: dict[str, Any],
+    index: int,
+) -> bool:
+    if asset.when is None:
+        return True
+    value = evaluate_expression(
+        asset.when.expr,
+        context,
+        label=f'{command.manifest_path}: assets[{index}].when',
+    )
+    return bool(value)
 
 
 # ================================================
@@ -982,9 +1110,60 @@ def _validate_template_text(
     return issues
 
 
+def validate_expression_syntax(command: CommandSpec) -> list[TemplateValidationIssue]:
+    issues: list[TemplateValidationIssue] = []
+    for index, item in enumerate(command.computed):
+        try:
+            compile(item.expr, f'<computed[{index}]>', 'eval')
+        except SyntaxError as exc:
+            issues.append(
+                TemplateValidationIssue(
+                    command_name=command.name,
+                    template_path=f'computed[{index}].expr',
+                    undefined_variables=[],
+                    message=f'Invalid expression syntax: {exc.msg}',
+                )
+            )
+    for index, asset in enumerate(command.assets):
+        if asset.when is None:
+            continue
+        try:
+            compile(asset.when.expr, f'<assets[{index}].when>', 'eval')
+        except SyntaxError as exc:
+            issues.append(
+                TemplateValidationIssue(
+                    command_name=command.name,
+                    template_path=f'assets[{index}].when.expr',
+                    undefined_variables=[],
+                    message=f'Invalid expression syntax: {exc.msg}',
+                )
+            )
+    return issues
+
+
+def validate_static_asset_sources(command: CommandSpec) -> list[TemplateValidationIssue]:
+    issues: list[TemplateValidationIssue] = []
+    for index, asset in enumerate(command.assets):
+        if asset.when is not None:
+            continue
+        try:
+            _validate_active_asset_source(command, asset, index)
+        except ValidationError as exc:
+            issues.append(
+                TemplateValidationIssue(
+                    command_name=command.name,
+                    template_path=f'assets[{index}]',
+                    undefined_variables=[],
+                    message=str(exc),
+                )
+            )
+    return issues
+
+
 def validate_template_variables(command: CommandSpec, *, is_global: bool = False) -> list[TemplateValidationIssue]:
     issues: list[TemplateValidationIssue] = []
     base_keys = {input_spec.name for input_spec in command.inputs}
+    base_keys.update(item.name for item in command.computed)
     base_keys.update(BUILTIN_VARIABLES)
     if is_global:
         base_keys.update(GLOBAL_VARIABLES)
@@ -1156,6 +1335,27 @@ def effective_conflict_policy(
     return 'fail'
 
 
+def _validate_active_asset_source(command: CommandSpec, asset: AssetSpec, index: int) -> None:
+    label = f'{command.manifest_path}: assets[{index}]'
+    has_template = asset.template is not None
+    has_content = asset.content is not None
+
+    if asset.type == 'dir':
+        if has_template or has_content:
+            raise ValidationError(f'{label} is a dir asset and must not define template or content')
+        return
+
+    if has_template == has_content:
+        raise ValidationError(
+            f'{label} is a file asset and must define exactly one of template or content'
+        )
+
+    if asset.template is not None:
+        template_path = command.package_dir / asset.template
+        if not template_path.exists() or not template_path.is_file():
+            raise ValidationError(f'{label}.template not found: {asset.template}')
+
+
 def build_generation_plan(
     command: CommandSpec,
     project_root: Path,
@@ -1186,6 +1386,10 @@ def build_generation_plan(
         asset_context.update(
             _build_asset_ref_context(sandbox_root, ref_paths, include_bare_abs=False)
         )
+
+        if not is_asset_active(command, asset, asset_context, index):
+            continue
+        _validate_active_asset_source(command, asset, index)
 
         requested_path = render_text(asset.path, asset_context, scope='asset').strip()
         if not requested_path:

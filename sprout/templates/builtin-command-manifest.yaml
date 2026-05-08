@@ -1,3 +1,5 @@
+schema: sprout.manifest/v1
+
 name: __COMMAND_NAME__
 description: Describe what this command generates
 
@@ -11,6 +13,11 @@ inputs:
     type: string
     description: Primary identifier used in generated paths
 
+# Optional computed values. `expr` is Python; `{{...}}` remains text interpolation.
+# computed:
+#   - name: slug
+#     expr: "name.strip().lower().replace(' ', '-')"
+
 # Generated files/directories. Keep short templates inline with `content`,
 # or switch to `template: some-file.md` after you create that file manually.
 assets:
@@ -19,6 +26,9 @@ assets:
     ref: output_dir
 
   - type: file
+    # Optional condition:
+    # when:
+    #   expr: "name != ''"
     path: "{{assets.output_dir.rel_path}}/{{name}}.md"
     content: |
       # {{name}}
