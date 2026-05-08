@@ -762,6 +762,20 @@ def suggest_command_names(name: str, available: list[str], *, limit: int = 3) ->
     return get_close_matches(name, available, n=limit, cutoff=0.5)
 
 
+def render_input_values(command: CommandSpec, context: dict[str, Any]) -> None:
+    """Re-render collected input values that contain template expressions.
+
+    Input default values are stored as literals by collect_inputs(). This
+    post-pass expands {{...}} placeholders (e.g. {{rand.str:6}}, {{YYYY}})
+    using the fully-built context. Operates in-place on the shared dict.
+    """
+    input_names = {spec.name for spec in command.inputs}
+    for name in input_names:
+        value = context.get(name)
+        if isinstance(value, str) and PLACEHOLDER_PATTERN.search(value):
+            context[name] = render_text(value, context, scope='base')
+
+
 # ================================================
 # Section: Template rendering and validation
 # ================================================

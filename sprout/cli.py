@@ -22,6 +22,7 @@ from .core import (
     parse_json_input,
     parse_key_value_pairs,
     plan_post_actions,
+    render_input_values,
     suggest_command_names,
     validate_template_variables,
 )
@@ -428,6 +429,7 @@ def _run_new(args: argparse.Namespace) -> int:
 
     mode: Literal['project', 'global'] = 'global' if global_mode else 'project'
     context = build_variable_context(values, mode=mode)
+    render_input_values(command, context)
 
     # Determine sandbox root for global mode
     if global_mode and command.root is not None:

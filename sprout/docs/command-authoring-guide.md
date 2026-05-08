@@ -130,7 +130,7 @@ actions:
 - `type`: `string` | `number` | `enum`
 - `required`: optional, defaults to `true`
 - `description`: optional but recommended
-- `default`: optional
+- `default`: optional; supports `{{...}}` template expressions (e.g. `{{rand.str:6}}`, `{{YYYY}}-{{MM}}`)
 - `enum`: required when `type: enum`
 - `min` / `max`: only for `type: number`
 
@@ -164,6 +164,7 @@ actions:
 - Placeholders use `{{...}}` only
 - Project mode variables = user inputs + built-in time values + `project.root` / `project.root_name` + asset refs + random tokens
 - Global mode variables = user inputs + built-in time values + `home` / `cwd` / `platform` + asset refs + random tokens
+- `inputs[*].default` values are also rendered as templates (e.g. `default: "{{rand.str:6}}"`)
 - Asset path templates may reference only earlier asset refs, and should use explicit suffixes such as `{{assets.root_dir.rel_path}}`
 - Action templates may use bare `{{assets.root_dir}}`, which means absolute path
 - Random tokens: `{{rand.str}}`, `{{rand.str:10}}`, `{{rand.num}}`, `{{rand.num:6}}`
